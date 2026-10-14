@@ -422,6 +422,19 @@ export function DatosNegocioProvider({ children }) {
     if (!relacionados.length) {
       return { ok: false, mensaje: 'No se encontró la transferencia.' };
     }
+
+    const entrada = relacionados.find((item) => item.tipo === 'Entrada');
+    if (entrada) {
+      const cuentaDestino = normalizarCuentaFlujo(entrada.cuentaFlujo || entrada.metodoPago);
+      const monto = numero(entrada.monto);
+      if (saldoCuentaFlujo(cuentaDestino) + 0.0001 < monto) {
+        return {
+          ok: false,
+          mensaje: `No se puede cancelar porque ${cuentaDestino} ya no tiene saldo suficiente para revertir la transferencia.`,
+        };
+      }
+    }
+
     setMovimientosFlujo((actuales) =>
       actuales.filter((item) => item.transferenciaId !== transferenciaId)
     );
@@ -752,12 +765,54 @@ export function DatosNegocioProvider({ children }) {
     return { ok: true, insumo };
   };
 
+  const actualizarReferenciaInsumoEnProducto = (producto, insumoId, nombre, unidadBase) => ({
+    ...producto,
+    receta: (producto.receta || []).map((r) =>
+      r.insumoId === insumoId ? { ...r, insumoNombre: nombre, unidadBase } : r
+    ),
+    presentaciones: (producto.presentaciones || []).map((presentacion) => ({
+      ...presentacion,
+      receta: (presentacion.receta || []).map((r) =>
+        r.insumoId === insumoId ? { ...r, insumoNombre: nombre, unidadBase } : r
+      ),
+    })),
+    seccionesPersonalizacion: (producto.seccionesPersonalizacion || []).map((seccion) => ({
+      ...seccion,
+      opciones: (seccion.opciones || []).map((opcion) =>
+        opcion.insumoId === insumoId
+          ? { ...opcion, insumoNombre: nombre, unidadBase }
+          : opcion
+      ),
+    })),
+  });
+
+  const productoUsaInsumo = (producto, insumoId) => {
+    if ((producto.receta || []).some((r) => r.insumoId === insumoId)) return true;
+
+    if (
+      (producto.presentaciones || []).some((presentacion) =>
+        (presentacion.receta || []).some((r) => r.insumoId === insumoId)
+      )
+    ) {
+      return true;
+    }
+
+    return (producto.seccionesPersonalizacion || []).some((seccion) =>
+      (seccion.opciones || []).some(
+        (opcion) =>
+          opcion.insumoId === insumoId || opcion.reemplazaInsumoId === insumoId
+      )
+    );
+  };
+
   const editarInsumo = (insumoId, cambios = {}) => {
     const actual = insumos.find((item) => item.id === insumoId);
     if (!actual) return { ok: false, mensaje: 'No se encontró el insumo.' };
 
     const nombre = cambios.nombre !== undefined ? String(cambios.nombre).trim() : actual.nombre;
     if (!nombre) return { ok: false, mensaje: 'El insumo debe tener nombre.' };
+
+    const unidadBase = cambios.unidadBase ?? actual.unidadBase;
 
     setInsumos((lista) =>
       lista.map((item) =>
@@ -771,7 +826,7 @@ export function DatosNegocioProvider({ children }) {
                 cambios.contenidoPresentacion !== undefined
                   ? numero(cambios.contenidoPresentacion)
                   : item.contenidoPresentacion,
-              unidadBase: cambios.unidadBase ?? item.unidadBase,
+              unidadBase,
               stockMinimo:
                 cambios.stockMinimo !== undefined ? numero(cambios.stockMinimo) : item.stockMinimo,
             }
@@ -780,7 +835,21 @@ export function DatosNegocioProvider({ children }) {
     );
 
     setMovimientos((lista) =>
-      lista.map((mov) => (mov.insumoId === insumoId ? { ...mov, insumoNombre: nombre } : mov))
+      lista.map((mov) =>
+        mov.insumoId === insumoId
+          ? { ...mov, insumoNombre: nombre, unidadBase }
+          : mov
+      )
+    );
+
+    // V2.07: si cambia el nombre o la unidad, mantenemos sincronizadas
+    // todas las recetas, presentaciones y personalizaciones que lo referencian.
+    setProductos((lista) =>
+      lista.map((producto) =>
+        productoUsaInsumo(producto, insumoId)
+          ? actualizarReferenciaInsumoEnProducto(producto, insumoId, nombre, unidadBase)
+          : producto
+      )
     );
 
     return { ok: true };
@@ -794,15 +863,20 @@ export function DatosNegocioProvider({ children }) {
       return { ok: false, mensaje: 'No puedes eliminar un insumo que todavía tiene existencia.' };
     }
 
-    const usadoEnReceta = productos.some((p) =>
-      (p.receta || []).some((r) => r.insumoId === insumoId)
-    );
-    if (usadoEnReceta) {
-      return { ok: false, mensaje: 'Este insumo está usado en una receta. Primero quítalo de la receta.' };
+    const usadoEnProducto = productos.some((p) => productoUsaInsumo(p, insumoId));
+    if (usadoEnProducto) {
+      return {
+        ok: false,
+        mensaje:
+          'Este insumo está usado en una receta, presentación o personalización. Primero quítalo de Productos / recetas.',
+      };
     }
 
     const usadoEnVenta = ventas.some((v) =>
-      (v.detalleCosto || []).some((d) => d.insumoId === insumoId)
+      (v.detalleCosto || []).some((d) => d.insumoId === insumoId) ||
+      (v.partidas || []).some((p) =>
+        (p.detalleCostoPartida || []).some((d) => d.insumoId === insumoId)
+      )
     );
     if (usadoEnVenta) {
       return { ok: false, mensaje: 'No se puede eliminar porque existe historial de ventas con este insumo.' };
