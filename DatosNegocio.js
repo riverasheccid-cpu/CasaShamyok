@@ -3158,6 +3158,116 @@ export function DatosNegocioProvider({ children }) {
     return { ok: true };
   };
 
+
+  // =====================================================
+  // RESPALDO / RESTAURACIÓN DE DATOS
+  // =====================================================
+
+  const crearRespaldoDatos = () => {
+    const respaldo = {
+      app: 'Casa Shamy',
+      versionRespaldo: 2,
+      exportadoEn: new Date().toISOString(),
+      datos: {
+        insumos,
+        movimientos,
+        productos,
+        ventas,
+        gastos,
+        inversiones,
+        pagosInversion,
+        movimientosFlujo,
+        saldosInicialesFlujo,
+        comprasLibres,
+        creditosProveedores,
+        pagosCreditos,
+      },
+    };
+
+    return JSON.stringify(respaldo, null, 2);
+  };
+
+  const importarRespaldoDatos = async (textoRespaldo) => {
+    try {
+      const parsed =
+        typeof textoRespaldo === 'string'
+          ? JSON.parse(textoRespaldo)
+          : textoRespaldo;
+
+      const origen = parsed?.datos || parsed;
+      if (!origen || typeof origen !== 'object') {
+        return { ok: false, mensaje: 'El respaldo no tiene un formato válido.' };
+      }
+
+      const clavesEsperadas = [
+        'insumos',
+        'productos',
+        'ventas',
+        'gastos',
+        'movimientosFlujo',
+      ];
+      const tieneContenidoReconocible = clavesEsperadas.some((clave) =>
+        Array.isArray(origen[clave])
+      );
+      if (!tieneContenidoReconocible) {
+        return { ok: false, mensaje: 'No se reconocen datos de Casa Shamy en este respaldo.' };
+      }
+
+      const saldos = origen.saldosInicialesFlujo || {};
+      const datosNormalizados = {
+        insumos: (Array.isArray(origen.insumos) ? origen.insumos : []).map(normalizarInsumo),
+        movimientos: Array.isArray(origen.movimientos) ? origen.movimientos : [],
+        productos: (Array.isArray(origen.productos) ? origen.productos : []).map(normalizarProducto),
+        ventas: Array.isArray(origen.ventas) ? origen.ventas : [],
+        gastos: Array.isArray(origen.gastos) ? origen.gastos : [],
+        inversiones: Array.isArray(origen.inversiones) ? origen.inversiones : [],
+        pagosInversion: Array.isArray(origen.pagosInversion) ? origen.pagosInversion : [],
+        movimientosFlujo: Array.isArray(origen.movimientosFlujo) ? origen.movimientosFlujo : [],
+        saldosInicialesFlujo: {
+          Efectivo: numero(saldos.Efectivo),
+          Banco: numero(saldos.Banco),
+          Tarjeta: numero(saldos.Tarjeta),
+        },
+        comprasLibres: Array.isArray(origen.comprasLibres) ? origen.comprasLibres : [],
+        creditosProveedores: Array.isArray(origen.creditosProveedores) ? origen.creditosProveedores : [],
+        pagosCreditos: Array.isArray(origen.pagosCreditos) ? origen.pagosCreditos : [],
+      };
+
+      setDatosCargados(false);
+      await AsyncStorage.setItem(CLAVE_DATOS, JSON.stringify(datosNormalizados));
+
+      setInsumos(datosNormalizados.insumos);
+      setMovimientos(datosNormalizados.movimientos);
+      setProductos(datosNormalizados.productos);
+      setVentas(datosNormalizados.ventas);
+      setGastos(datosNormalizados.gastos);
+      setInversiones(datosNormalizados.inversiones);
+      setPagosInversion(datosNormalizados.pagosInversion);
+      setMovimientosFlujo(datosNormalizados.movimientosFlujo);
+      setSaldosInicialesFlujo(datosNormalizados.saldosInicialesFlujo);
+      setComprasLibres(datosNormalizados.comprasLibres);
+      setCreditosProveedores(datosNormalizados.creditosProveedores);
+      setPagosCreditos(datosNormalizados.pagosCreditos);
+      setDatosCargados(true);
+
+      return {
+        ok: true,
+        resumen: {
+          insumos: datosNormalizados.insumos.length,
+          productos: datosNormalizados.productos.length,
+          ventas: datosNormalizados.ventas.length,
+          gastos: datosNormalizados.gastos.length,
+        },
+      };
+    } catch (error) {
+      setDatosCargados(true);
+      return {
+        ok: false,
+        mensaje: 'No se pudo leer el respaldo. Verifica que hayas pegado el contenido completo.',
+      };
+    }
+  };
+
   // =====================================================
   // VALORES DERIVADOS
   // =====================================================
@@ -3280,6 +3390,9 @@ export function DatosNegocioProvider({ children }) {
     cancelarPagoCredito,
     editarCreditoProveedor,
     cancelarCreditoProveedor,
+
+    crearRespaldoDatos,
+    importarRespaldoDatos,
   };
 
   return React.createElement(
