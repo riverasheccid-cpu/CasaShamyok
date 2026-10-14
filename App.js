@@ -18,6 +18,7 @@ import InventarioFIFO from './InventarioFIFO.js';
 import ProductosRecetas from './ProductosRecetas.js';
 import Reportes from './Reportes.js';
 import VentasPOS from './VentasPOS.js';
+import FlujoEfectivo from './FlujoEfectivo.js';
 
 import {
   DatosNegocioProvider,
@@ -201,6 +202,7 @@ function CasaShamyApp() {
     ventasPendientes,
     valorInventario,
     saldoFlujo,
+    obtenerResumenFlujo,
     numero,
     registrarVentaProducto,
     registrarVentaProductoPendiente,
@@ -324,6 +326,10 @@ function CasaShamyApp() {
     return <VentasPOS onVolver={() => setPantalla('Inicio')} />;
   }
 
+  if (pantalla === 'Flujo') {
+    return <FlujoEfectivo onVolver={() => setPantalla('Inicio')} />;
+  }
+
   const hoy = hoyKey();
 
   const ventasHoy = ventas.filter((venta) => venta.fechaKey === hoy);
@@ -347,6 +353,7 @@ function CasaShamyApp() {
 
   const resumenInversionistas = obtenerResumenInversionistas();
   const resumenCreditos = obtenerResumenCreditos();
+  const resumenFlujo = obtenerResumenFlujo();
   const saldoCaja = saldoFlujo();
 
   const totalCreditoPendiente = resumenCreditos.reduce(
@@ -804,7 +811,7 @@ function CasaShamyApp() {
           <TarjetaMetrica
             titulo="Caja / flujo"
             valor={dinero(saldoCaja)}
-            detalle={`${movimientosFlujo.length} movimientos`}
+            detalle={`Efectivo ${dinero(resumenFlujo.efectivo)} · Banco ${dinero(resumenFlujo.banco)} · Tarjeta ${dinero(resumenFlujo.tarjeta)}`}
           />
         </View>
 
@@ -846,6 +853,7 @@ function CasaShamyApp() {
           <Boton titulo="Venta libre" tipo="secundario" onPress={() => setModalVentaLibre(true)} />
           <Boton titulo="Nuevo gasto" onPress={() => setModalGasto(true)} />
           <Boton titulo="Inventario" tipo="secundario" onPress={() => setPantalla('Inventario')} />
+          <Boton titulo="Flujo de efectivo" tipo="secundario" onPress={() => setPantalla('Flujo')} />
           <Boton titulo="Productos / recetas" tipo="secundario" onPress={() => setPantalla('Productos')} />
           <Boton titulo="Reportes" tipo="secundario" onPress={() => setPantalla('Reportes')} />
           <Boton titulo="Inversiones" tipo="suave" onPress={() => setPantalla('Inversiones')} />

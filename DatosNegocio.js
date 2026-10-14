@@ -122,6 +122,24 @@ const normalizarProducto = (producto = {}) => ({
   estadoReceta: normalizarEstadoReceta(producto),
 });
 
+
+const CUENTAS_FLUJO = ['Efectivo', 'Banco', 'Tarjeta'];
+
+const normalizarCuentaFlujo = (valor) => {
+  const limpio = String(valor || '').trim().toLowerCase();
+  if (!limpio) return null;
+  if (limpio.includes('efectivo')) return 'Efectivo';
+  if (limpio.includes('tarjeta')) return 'Tarjeta';
+  if (limpio.includes('transfer') || limpio.includes('banco')) return 'Banco';
+  return null;
+};
+
+const metodoPagoDesdeCuenta = (cuenta) => {
+  if (cuenta === 'Banco') return 'Transferencia';
+  if (cuenta === 'Tarjeta') return 'Tarjeta';
+  return 'Efectivo';
+};
+
 export function DatosNegocioProvider({ children }) {
   const [insumos, setInsumos] = useState([]);
   const [movimientos, setMovimientos] = useState([]);
@@ -131,6 +149,7 @@ export function DatosNegocioProvider({ children }) {
   const [inversiones, setInversiones] = useState([]);
   const [pagosInversion, setPagosInversion] = useState([]);
   const [movimientosFlujo, setMovimientosFlujo] = useState([]);
+  const [saldosInicialesFlujo, setSaldosInicialesFlujo] = useState({ Efectivo: 0, Banco: 0, Tarjeta: 0 });
   const [comprasLibres, setComprasLibres] = useState([]);
   const [creditosProveedores, setCreditosProveedores] = useState([]);
   const [pagosCreditos, setPagosCreditos] = useState([]);
@@ -152,6 +171,12 @@ export function DatosNegocioProvider({ children }) {
           setMovimientosFlujo(
             Array.isArray(datos.movimientosFlujo) ? datos.movimientosFlujo : []
           );
+          const saldosGuardados = datos.saldosInicialesFlujo || {};
+          setSaldosInicialesFlujo({
+            Efectivo: numero(saldosGuardados.Efectivo),
+            Banco: numero(saldosGuardados.Banco),
+            Tarjeta: numero(saldosGuardados.Tarjeta),
+          });
           setComprasLibres(Array.isArray(datos.comprasLibres) ? datos.comprasLibres : []);
           setCreditosProveedores(
             Array.isArray(datos.creditosProveedores) ? datos.creditosProveedores : []
@@ -184,6 +209,7 @@ export function DatosNegocioProvider({ children }) {
             inversiones,
             pagosInversion,
             movimientosFlujo,
+            saldosInicialesFlujo,
             comprasLibres,
             creditosProveedores,
             pagosCreditos,
@@ -205,6 +231,7 @@ export function DatosNegocioProvider({ children }) {
     inversiones,
     pagosInversion,
     movimientosFlujo,
+    saldosInicialesFlujo,
     comprasLibres,
     creditosProveedores,
     pagosCreditos,
@@ -220,6 +247,10 @@ export function DatosNegocioProvider({ children }) {
     concepto,
     categoria = 'General',
     metodoPago = 'Efectivo',
+    cuentaFlujo = null,
+    transferenciaId = null,
+    cuentaOrigen = null,
+    cuentaDestino = null,
     referenciaId = null,
     origen = 'Manual',
     fechaKey = null,
@@ -229,6 +260,7 @@ export function DatosNegocioProvider({ children }) {
     const cantidad = numero(monto);
     if (!cantidad || cantidad <= 0) return null;
 
+    const cuenta = normalizarCuentaFlujo(cuentaFlujo || metodoPago);
     const movimiento = {
       id: crearId('FLU'),
       tipo,
@@ -236,6 +268,10 @@ export function DatosNegocioProvider({ children }) {
       concepto: String(concepto || '').trim() || 'Movimiento',
       categoria,
       metodoPago,
+      cuentaFlujo: cuenta,
+      transferenciaId,
+      cuentaOrigen,
+      cuentaDestino,
       referenciaId,
       origen,
       fechaKey: fechaKey || fechaKeyActual(),
@@ -247,11 +283,150 @@ export function DatosNegocioProvider({ children }) {
     return movimiento;
   };
 
-  const saldoFlujo = () =>
-    movimientosFlujo.reduce((total, item) => {
-      const monto = numero(item.monto);
-      return item.tipo === 'Entrada' ? total + monto : total - monto;
-    }, 0);
+  const establecerSaldoInicialFlujo = ({ cuenta, monto }) => {
+    const cuentaNormalizada = normalizarCuentaFlujo(cuenta);
+    if (!cuentaNormalizada || !CUENTAS_FLUJO.includes(cuentaNormalizada)) {
+      return { ok: false, mensaje: 'Selecciona una cuenta válida.' };
+    }
+
+    const cantidad = numero(monto);
+    if (cantidad < 0) {
+      return { ok: false, mensaje: 'El saldo inicial no puede ser negativo.' };
+    }
+
+    setSaldosInicialesFlujo((actual) => ({
+      ...actual,
+      [cuentaNormalizada]: redondear(cantidad),
+    }));
+
+    return { ok: true, cuenta: cuentaNormalizada, saldoInicial: redondear(cantidad) };
+  };
+
+  const saldoCuentaFlujo = (cuenta) => {
+    const cuentaNormalizada = normalizarCuentaFlujo(cuenta);
+    if (!cuentaNormalizada) return 0;
+
+    const inicial = numero(saldosInicialesFlujo[cuentaNormalizada]);
+    return redondear(
+      movimientosFlujo.reduce((total, item) => {
+        const cuentaMovimiento = normalizarCuentaFlujo(item.cuentaFlujo || item.metodoPago);
+        if (cuentaMovimiento !== cuentaNormalizada) return total;
+        const monto = numero(item.monto);
+        return item.tipo === 'Entrada' ? total + monto : total - monto;
+      }, inicial)
+    );
+  };
+
+  const obtenerResumenFlujo = () => {
+    const cuentas = {};
+    CUENTAS_FLUJO.forEach((cuenta) => {
+      cuentas[cuenta] = {
+        cuenta,
+        saldoInicial: redondear(numero(saldosInicialesFlujo[cuenta])),
+        saldo: saldoCuentaFlujo(cuenta),
+      };
+    });
+
+    const total = CUENTAS_FLUJO.reduce((suma, cuenta) => suma + numero(cuentas[cuenta].saldo), 0);
+    return {
+      cuentas,
+      efectivo: cuentas.Efectivo.saldo,
+      banco: cuentas.Banco.saldo,
+      tarjeta: cuentas.Tarjeta.saldo,
+      total: redondear(total),
+    };
+  };
+
+  const saldoFlujo = (cuenta = null) => {
+    if (cuenta) return saldoCuentaFlujo(cuenta);
+    return obtenerResumenFlujo().total;
+  };
+
+  const registrarTransferenciaInterna = ({ desde, hacia, monto, nota = '' }) => {
+    const origenCuenta = normalizarCuentaFlujo(desde);
+    const destinoCuenta = normalizarCuentaFlujo(hacia);
+    const cantidad = numero(monto);
+
+    if (!origenCuenta || !destinoCuenta) {
+      return { ok: false, mensaje: 'Selecciona la cuenta de origen y destino.' };
+    }
+    if (origenCuenta === destinoCuenta) {
+      return { ok: false, mensaje: 'La cuenta de origen y destino deben ser diferentes.' };
+    }
+    if (!cantidad || cantidad <= 0) {
+      return { ok: false, mensaje: 'El monto debe ser mayor a 0.' };
+    }
+    if (cantidad > saldoCuentaFlujo(origenCuenta) + 0.0001) {
+      return { ok: false, mensaje: `No hay saldo suficiente en ${origenCuenta}.` };
+    }
+
+    const transferenciaId = crearId('TRF');
+    const fechaKey = fechaKeyActual();
+    const fecha = fechaActual();
+    const hora = horaActual();
+    const detalleNota = String(nota || '').trim();
+
+    const salida = registrarMovimientoFlujo({
+      tipo: 'Salida',
+      monto: cantidad,
+      concepto: `Transferencia a ${destinoCuenta}${detalleNota ? ` · ${detalleNota}` : ''}`,
+      categoria: 'Transferencia interna',
+      metodoPago: metodoPagoDesdeCuenta(origenCuenta),
+      cuentaFlujo: origenCuenta,
+      transferenciaId,
+      cuentaOrigen: origenCuenta,
+      cuentaDestino: destinoCuenta,
+      referenciaId: transferenciaId,
+      origen: 'Transferencia interna',
+      fechaKey,
+      fecha,
+      hora,
+    });
+
+    const entrada = registrarMovimientoFlujo({
+      tipo: 'Entrada',
+      monto: cantidad,
+      concepto: `Transferencia desde ${origenCuenta}${detalleNota ? ` · ${detalleNota}` : ''}`,
+      categoria: 'Transferencia interna',
+      metodoPago: metodoPagoDesdeCuenta(destinoCuenta),
+      cuentaFlujo: destinoCuenta,
+      transferenciaId,
+      cuentaOrigen: origenCuenta,
+      cuentaDestino: destinoCuenta,
+      referenciaId: transferenciaId,
+      origen: 'Transferencia interna',
+      fechaKey,
+      fecha,
+      hora,
+    });
+
+    return {
+      ok: true,
+      transferencia: {
+        id: transferenciaId,
+        desde: origenCuenta,
+        hacia: destinoCuenta,
+        monto: redondear(cantidad),
+        nota: detalleNota,
+        fechaKey,
+        fecha,
+        hora,
+      },
+      salida,
+      entrada,
+    };
+  };
+
+  const cancelarTransferenciaInterna = (transferenciaId) => {
+    const relacionados = movimientosFlujo.filter((item) => item.transferenciaId === transferenciaId);
+    if (!relacionados.length) {
+      return { ok: false, mensaje: 'No se encontró la transferencia.' };
+    }
+    setMovimientosFlujo((actuales) =>
+      actuales.filter((item) => item.transferenciaId !== transferenciaId)
+    );
+    return { ok: true };
+  };
 
   // =====================================================
   // INVERSIONES
@@ -2946,6 +3121,7 @@ export function DatosNegocioProvider({ children }) {
     inversiones,
     pagosInversion,
     movimientosFlujo,
+    saldosInicialesFlujo,
     comprasLibres,
     creditosProveedores,
     pagosCreditos,
@@ -2962,6 +3138,12 @@ export function DatosNegocioProvider({ children }) {
 
     registrarMovimientoFlujo,
     saldoFlujo,
+    saldoCuentaFlujo,
+    obtenerResumenFlujo,
+    establecerSaldoInicialFlujo,
+    registrarTransferenciaInterna,
+    cancelarTransferenciaInterna,
+    normalizarCuentaFlujo,
 
     agregarInversion,
     cancelarInversion,
