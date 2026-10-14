@@ -1,0 +1,14 @@
+{
+  "expo": {
+    "name": "Casa Shamy",
+    "slug": "casa-shamy",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {},
+    "web": {}
+  }
+}
