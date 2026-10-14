@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   SafeAreaView,
   ScrollView,
@@ -15,30 +15,52 @@ import {
 
 import { useNegocio } from './DatosNegocio.js';
 
-const ESTADOS = ['Sin receta', 'En proceso', 'Completa'];
-const FILTROS_PRODUCTOS = ['Todos', 'Sin receta', 'En proceso', 'Receta completa'];
+const TIPOS_PRODUCTO = ['Fijo', 'Bebida configurable', 'Arma el tuyo'];
+const ESTADOS_RECETA = ['Sin receta', 'En proceso', 'Completa'];
+const FILTROS = ['Todos', 'Fijo', 'Bebida configurable', 'Arma el tuyo'];
+const MODOS_SELECCION = ['Única', 'Múltiple'];
+const ACCIONES_INVENTARIO = ['Agregar', 'Sustituir', 'Ninguno'];
 
-const dinero = (valor) =>
-  `$${Number(valor || 0).toLocaleString('es-MX', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}`;
+const C = {
+  fondo: '#F8F4EC',
+  tarjeta: '#FFFFFF',
+  verde: '#274E3A',
+  verde2: '#3E6B53',
+  crema: '#EFE6D7',
+  terracota: '#B86F52',
+  texto: '#28231F',
+  secundario: '#786F67',
+  linea: '#E2D8CC',
+  peligro: '#9F3E35',
+  exito: '#3E7651',
+  aviso: '#9A6B22',
+};
 
-const texto = (valor) => String(valor ?? '').trim();
+const numero = (v) => {
+  const n = Number(String(v ?? '').replace(',', '.'));
+  return Number.isFinite(n) ? n : 0;
+};
+
+const texto = (v) => String(v ?? '').trim();
+const uid = (p = 'TMP') => `${p}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+const dinero = (v) =>
+  `$${numero(v).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+const copia = (obj) => JSON.parse(JSON.stringify(obj ?? null));
 
 function Boton({ titulo, onPress, tipo = 'principal', disabled = false, compacto = false }) {
   return (
     <Pressable
-      disabled={disabled}
       onPress={onPress}
+      disabled={disabled}
       style={({ pressed }) => [
         styles.boton,
         tipo === 'secundario' && styles.botonSecundario,
-        tipo === 'peligro' && styles.botonPeligro,
         tipo === 'suave' && styles.botonSuave,
+        tipo === 'peligro' && styles.botonPeligro,
         compacto && styles.botonCompacto,
-        disabled && styles.botonDeshabilitado,
-        pressed && !disabled && styles.presionado,
+        disabled && styles.botonDisabled,
+        pressed && !disabled && { opacity: 0.78 },
       ]}
     >
       <Text
@@ -54,30 +76,16 @@ function Boton({ titulo, onPress, tipo = 'principal', disabled = false, compacto
   );
 }
 
-function Campo({ etiqueta, value, onChangeText, placeholder = '', keyboardType = 'default' }) {
-  return (
-    <View style={styles.campoGrupo}>
-      <Text style={styles.campoEtiqueta}>{etiqueta}</Text>
-      <TextInput
-        value={value}
-        onChangeText={onChangeText}
-        placeholder={placeholder}
-        keyboardType={keyboardType}
-        style={styles.input}
-        placeholderTextColor="#9A9A9A"
-      />
-    </View>
-  );
-}
-
-function Chip({ texto: label, activo, onPress }) {
+function Chip({ label, activo, onPress, disabled = false }) {
   return (
     <Pressable
       onPress={onPress}
+      disabled={disabled}
       style={({ pressed }) => [
         styles.chip,
         activo && styles.chipActivo,
-        pressed && styles.presionado,
+        disabled && styles.chipDisabled,
+        pressed && !disabled && { opacity: 0.78 },
       ]}
     >
       <Text style={[styles.chipTexto, activo && styles.chipTextoActivo]}>{label}</Text>
@@ -85,24 +93,62 @@ function Chip({ texto: label, activo, onPress }) {
   );
 }
 
-function ModalBase({ visible, titulo, onCerrar, children }) {
+function Campo({
+  etiqueta,
+  value,
+  onChangeText,
+  placeholder = '',
+  keyboardType = 'default',
+  multiline = false,
+  ayuda = '',
+}) {
   return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={onCerrar}>
+    <View style={styles.campoGrupo}>
+      <Text style={styles.etiqueta}>{etiqueta}</Text>
+      <TextInput
+        value={String(value ?? '')}
+        onChangeText={onChangeText}
+        placeholder={placeholder}
+        placeholderTextColor="#A39A92"
+        keyboardType={keyboardType}
+        multiline={multiline}
+        textAlignVertical={multiline ? 'top' : 'center'}
+        style={[styles.input, multiline && styles.inputMultiline]}
+      />
+      {!!ayuda && <Text style={styles.ayuda}>{ayuda}</Text>}
+    </View>
+  );
+}
+
+function Toggle({ label, value, onChange, ayuda = '' }) {
+  return (
+    <Pressable style={styles.toggleFila} onPress={() => onChange(!value)}>
+      <View style={{ flex: 1 }}>
+        <Text style={styles.toggleLabel}>{label}</Text>
+        {!!ayuda && <Text style={styles.ayuda}>{ayuda}</Text>}
+      </View>
+      <View style={[styles.switchBase, value && styles.switchOn]}>
+        <View style={[styles.switchPunto, value && styles.switchPuntoOn]} />
+      </View>
+    </Pressable>
+  );
+}
+
+function ModalBase({ visible, titulo, onCerrar, children, alto = '92%' }) {
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onCerrar}>
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={styles.modalFondo}
       >
-        <View style={styles.modalCaja}>
+        <View style={[styles.modalCaja, { height: alto }]}>
           <View style={styles.modalHeader}>
             <Text style={styles.modalTitulo}>{titulo}</Text>
-            <Pressable onPress={onCerrar} style={styles.cerrar}>
-              <Text style={styles.cerrarTexto}>✕</Text>
+            <Pressable onPress={onCerrar} style={styles.cerrarBtn}>
+              <Text style={styles.cerrarTxt}>✕</Text>
             </Pressable>
           </View>
-          <ScrollView
-            keyboardShouldPersistTaps="handled"
-            contentContainerStyle={styles.modalContenido}
-          >
+          <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.modalContenido}>
             {children}
           </ScrollView>
         </View>
@@ -111,9 +157,140 @@ function ModalBase({ visible, titulo, onCerrar, children }) {
   );
 }
 
+function EncabezadoSeccion({ titulo, texto: descripcion }) {
+  return (
+    <View style={styles.encabezadoSeccion}>
+      <Text style={styles.seccionTitulo}>{titulo}</Text>
+      {!!descripcion && <Text style={styles.seccionTexto}>{descripcion}</Text>}
+    </View>
+  );
+}
+
+function Estado({ children, tipo = 'normal' }) {
+  return (
+    <View
+      style={[
+        styles.estado,
+        tipo === 'ok' && styles.estadoOk,
+        tipo === 'aviso' && styles.estadoAviso,
+        tipo === 'peligro' && styles.estadoPeligro,
+      ]}
+    >
+      <Text style={styles.estadoTexto}>{children}</Text>
+    </View>
+  );
+}
+
+function RecetaEditor({ receta, onChange, insumos, estado, onEstadoChange }) {
+  const [buscar, setBuscar] = useState('');
+  const [insumoId, setInsumoId] = useState(null);
+  const [cantidad, setCantidad] = useState('');
+
+  const opciones = useMemo(() => {
+    const q = buscar.toLowerCase().trim();
+    return [...insumos]
+      .filter((i) => !q || `${i.nombre || ''} ${i.categoria || ''}`.toLowerCase().includes(q))
+      .sort((a, b) => String(a.nombre || '').localeCompare(String(b.nombre || ''), 'es'));
+  }, [insumos, buscar]);
+
+  const agregar = () => {
+    if (!insumoId) return Alert.alert('Selecciona un insumo');
+    const cant = numero(cantidad);
+    if (cant <= 0) return Alert.alert('Cantidad inválida', 'Escribe una cantidad mayor a 0.');
+    const ins = insumos.find((i) => i.id === insumoId);
+    if (!ins) return;
+
+    const existente = receta.find((r) => r.insumoId === insumoId);
+    let nueva;
+    if (existente) {
+      nueva = receta.map((r) =>
+        r.insumoId === insumoId ? { ...r, cantidad: numero(r.cantidad) + cant } : r
+      );
+    } else {
+      nueva = [
+        ...receta,
+        {
+          id: uid('REC'),
+          insumoId,
+          insumoNombre: ins.nombre,
+          cantidad: cant,
+          unidadBase: ins.unidadBase || '',
+        },
+      ];
+    }
+    onChange(nueva);
+    if (estado === 'Sin receta') onEstadoChange?.('En proceso');
+    setInsumoId(null);
+    setCantidad('');
+  };
+
+  return (
+    <View>
+      {!!onEstadoChange && (
+        <>
+          <Text style={styles.etiqueta}>Estado de receta</Text>
+          <View style={styles.chipsWrap}>
+            {ESTADOS_RECETA.map((e) => (
+              <Chip key={e} label={e} activo={estado === e} onPress={() => onEstadoChange(e)} />
+            ))}
+          </View>
+        </>
+      )}
+
+      <Campo etiqueta="Buscar insumo" value={buscar} onChangeText={setBuscar} placeholder="Ej. leche, café..." />
+
+      <Text style={styles.etiqueta}>Selecciona ingrediente</Text>
+      <View style={styles.listaSeleccion}>
+        {opciones.slice(0, 18).map((ins) => (
+          <Pressable
+            key={ins.id}
+            onPress={() => setInsumoId(ins.id)}
+            style={[styles.opcionFila, insumoId === ins.id && styles.opcionFilaActiva]}
+          >
+            <View style={{ flex: 1 }}>
+              <Text style={styles.opcionTitulo}>{ins.nombre}</Text>
+              <Text style={styles.opcionMeta}>{ins.unidadBase || 'unidad'} · {ins.categoria || 'General'}</Text>
+            </View>
+            {insumoId === ins.id && <Text style={styles.check}>✓</Text>}
+          </Pressable>
+        ))}
+      </View>
+
+      <Campo
+        etiqueta="Cantidad usada"
+        value={cantidad}
+        onChangeText={setCantidad}
+        keyboardType="decimal-pad"
+        placeholder="Ej. 250"
+      />
+      <Boton titulo="Agregar ingrediente" onPress={agregar} />
+
+      <View style={{ height: 14 }} />
+      <Text style={styles.etiqueta}>Ingredientes de esta receta</Text>
+      {receta.length === 0 ? (
+        <Text style={styles.vacioTexto}>Todavía no hay ingredientes. Esto no impide vender el producto.</Text>
+      ) : (
+        receta.map((r) => (
+          <View key={r.id || `${r.insumoId}_${r.cantidad}`} style={styles.recetaFila}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.recetaNombre}>{r.insumoNombre || insumos.find((i) => i.id === r.insumoId)?.nombre || 'Insumo'}</Text>
+              <Text style={styles.recetaCantidad}>{r.cantidad} {r.unidadBase || insumos.find((i) => i.id === r.insumoId)?.unidadBase || ''}</Text>
+            </View>
+            <Pressable
+              onPress={() => onChange(receta.filter((x) => (x.id || x.insumoId) !== (r.id || r.insumoId)))}
+              style={styles.miniPeligro}
+            >
+              <Text style={styles.miniPeligroTxt}>Quitar</Text>
+            </Pressable>
+          </View>
+        ))
+      )}
+    </View>
+  );
+}
+
 export default function ProductosRecetas(props = {}) {
   const volver = props.onVolver || props.volver || props.onBack || null;
-
   const {
     productos,
     insumos,
@@ -121,1243 +298,832 @@ export default function ProductosRecetas(props = {}) {
     editarProducto,
     eliminarProducto,
     guardarRecetaProducto,
-    cambiarEstadoReceta,
     agregarInsumo,
     editarInsumo,
     eliminarInsumo,
-    existenciaDe,
     calcularCostoFIFO,
-    numero,
   } = useNegocio();
 
   const [seccion, setSeccion] = useState('Productos');
-  const [filtroProducto, setFiltroProducto] = useState('Todos');
-  const [busquedaProducto, setBusquedaProducto] = useState('');
-  const [busquedaInsumo, setBusquedaInsumo] = useState('');
+  const [filtro, setFiltro] = useState('Todos');
+  const [buscarProducto, setBuscarProducto] = useState('');
+  const [buscarInsumo, setBuscarInsumo] = useState('');
 
   const [modalProducto, setModalProducto] = useState(false);
   const [productoEditando, setProductoEditando] = useState(null);
-  const [nombreProducto, setNombreProducto] = useState('');
-  const [categoriaProducto, setCategoriaProducto] = useState('');
-  const [precioProducto, setPrecioProducto] = useState('');
+  const [productoDraft, setProductoDraft] = useState(null);
 
   const [modalReceta, setModalReceta] = useState(false);
   const [productoReceta, setProductoReceta] = useState(null);
   const [recetaDraft, setRecetaDraft] = useState([]);
   const [estadoRecetaDraft, setEstadoRecetaDraft] = useState('Sin receta');
-  const [insumoSeleccionadoId, setInsumoSeleccionadoId] = useState(null);
-  const [cantidadIngrediente, setCantidadIngrediente] = useState('');
-  const [busquedaIngrediente, setBusquedaIngrediente] = useState('');
-  const [ingredienteEditandoId, setIngredienteEditandoId] = useState(null);
+
+  const [modalConfig, setModalConfig] = useState(false);
+  const [configDraft, setConfigDraft] = useState(null);
+  const [configTab, setConfigTab] = useState('Estructura');
+
+  const [modalPresentacion, setModalPresentacion] = useState(false);
+  const [presentacionEditandoId, setPresentacionEditandoId] = useState(null);
+  const [presentacionDraft, setPresentacionDraft] = useState(null);
+
+  const [modalTamano, setModalTamano] = useState(false);
+  const [tamanoEditandoId, setTamanoEditandoId] = useState(null);
+  const [tamanoDraft, setTamanoDraft] = useState(null);
+
+  const [modalReglasTamano, setModalReglasTamano] = useState(false);
+  const [tamanoReglasId, setTamanoReglasId] = useState(null);
+  const [reglasDraft, setReglasDraft] = useState([]);
+
+  const [modalSeccion, setModalSeccion] = useState(false);
+  const [seccionEditandoId, setSeccionEditandoId] = useState(null);
+  const [seccionDraft, setSeccionDraft] = useState(null);
+
+  const [modalOpcion, setModalOpcion] = useState(false);
+  const [seccionOpcionId, setSeccionOpcionId] = useState(null);
+  const [opcionEditandoId, setOpcionEditandoId] = useState(null);
+  const [opcionDraft, setOpcionDraft] = useState(null);
+
+  const [modalRecetaPresentacion, setModalRecetaPresentacion] = useState(false);
+  const [presentacionRecetaId, setPresentacionRecetaId] = useState(null);
+  const [recetaPresentacionDraft, setRecetaPresentacionDraft] = useState([]);
+  const [estadoRecetaPresentacion, setEstadoRecetaPresentacion] = useState('Sin receta');
 
   const [modalInsumo, setModalInsumo] = useState(false);
   const [insumoEditando, setInsumoEditando] = useState(null);
-  const [nombreInsumo, setNombreInsumo] = useState('');
-  const [categoriaInsumo, setCategoriaInsumo] = useState('');
-  const [presentacionInsumo, setPresentacionInsumo] = useState('');
-  const [contenidoInsumo, setContenidoInsumo] = useState('');
-  const [unidadInsumo, setUnidadInsumo] = useState('unidad');
-  const [stockMinimoInsumo, setStockMinimoInsumo] = useState('');
+  const [insumoDraft, setInsumoDraft] = useState(null);
 
-  const estadoVisible = (producto) => {
-    const estado = producto?.estadoReceta || ((producto?.receta || []).length ? 'En proceso' : 'Sin receta');
-    return estado === 'Completa' ? 'Receta completa' : estado;
-  };
+  const productosVisibles = useMemo(() => {
+    const q = buscarProducto.toLowerCase().trim();
+    return [...productos]
+      .filter((p) => filtro === 'Todos' || (p.tipoProducto || 'Fijo') === filtro)
+      .filter((p) => !q || `${p.nombre || ''} ${p.categoria || ''}`.toLowerCase().includes(q))
+      .sort((a, b) => String(a.nombre || '').localeCompare(String(b.nombre || ''), 'es'));
+  }, [productos, filtro, buscarProducto]);
 
-  const productosVisibles = productos
-    .filter((producto) => {
-      if (filtroProducto === 'Todos') return true;
-      return estadoVisible(producto) === filtroProducto;
-    })
-    .filter((producto) => {
-      const q = busquedaProducto.toLowerCase().trim();
-      if (!q) return true;
-      return `${producto.nombre || ''} ${producto.categoria || ''}`.toLowerCase().includes(q);
-    })
-    .sort((a, b) => String(a.nombre || '').localeCompare(String(b.nombre || ''), 'es'));
+  const insumosVisibles = useMemo(() => {
+    const q = buscarInsumo.toLowerCase().trim();
+    return [...insumos]
+      .filter((i) => !q || `${i.nombre || ''} ${i.categoria || ''}`.toLowerCase().includes(q))
+      .sort((a, b) => String(a.nombre || '').localeCompare(String(b.nombre || ''), 'es'));
+  }, [insumos, buscarInsumo]);
 
-  const insumosVisibles = insumos
-    .filter((insumo) => {
-      const q = busquedaInsumo.toLowerCase().trim();
-      if (!q) return true;
-      return `${insumo.nombre || ''} ${insumo.categoria || ''}`.toLowerCase().includes(q);
-    })
-    .sort((a, b) => String(a.nombre || '').localeCompare(String(b.nombre || ''), 'es'));
-
-  const insumosParaReceta = insumos
-    .filter((insumo) => {
-      const q = busquedaIngrediente.toLowerCase().trim();
-      if (!q) return true;
-      return `${insumo.nombre || ''} ${insumo.categoria || ''}`.toLowerCase().includes(q);
-    })
-    .sort((a, b) => String(a.nombre || '').localeCompare(String(b.nombre || ''), 'es'));
-
-  const costoReceta = (producto) => {
-    const receta = Array.isArray(producto?.receta) ? producto.receta : [];
-
-    if (!receta.length) {
-      return {
-        estado: 'sin-receta',
-        total: null,
-        texto: 'Sin receta',
-      };
-    }
-
+  const costoReceta = (receta = []) => {
+    if (!receta.length) return { total: null, texto: 'Costo pendiente', estado: 'pendiente' };
     let total = 0;
-
-    for (const ingrediente of receta) {
-      const resultado = calcularCostoFIFO(ingrediente.insumoId, numero(ingrediente.cantidad));
-
-      if (!resultado?.ok) {
-        if (resultado?.inventarioDisponible || resultado?.costoPendiente) {
-          return {
-            estado: 'pendiente',
-            total: null,
-            texto: 'Costo pendiente',
-          };
-        }
-
-        return {
-          estado: 'sin-stock',
-          total: null,
-          texto: 'Sin inventario suficiente',
-        };
-      }
-
-      total += numero(resultado.costo);
+    for (const ing of receta) {
+      const r = calcularCostoFIFO(ing.insumoId, numero(ing.cantidad));
+      if (!r?.ok || r?.costoPendiente) return { total: null, texto: 'Costo pendiente', estado: 'pendiente' };
+      total += numero(r.costo);
     }
-
-    return {
-      estado: 'ok',
-      total,
-      texto: dinero(total),
-    };
+    return { total, texto: dinero(total), estado: 'ok' };
   };
 
   const abrirNuevoProducto = () => {
     setProductoEditando(null);
-    setNombreProducto('');
-    setCategoriaProducto('General');
-    setPrecioProducto('');
+    setProductoDraft({
+      nombre: '', categoria: 'General', precio: '', tipoProducto: 'Fijo',
+      descripcionPreparacion: '', imagenUri: '', activo: true,
+      permiteNotas: true, permiteModificarIngredientes: true,
+    });
     setModalProducto(true);
   };
 
-  const abrirEditarProducto = (producto) => {
-    setProductoEditando(producto);
-    setNombreProducto(producto.nombre || '');
-    setCategoriaProducto(producto.categoria || 'General');
-    setPrecioProducto(String(producto.precio ?? ''));
+  const abrirEditarProducto = (p) => {
+    setProductoEditando(p);
+    setProductoDraft({
+      nombre: p.nombre || '', categoria: p.categoria || 'General', precio: String(p.precio ?? ''),
+      tipoProducto: p.tipoProducto || 'Fijo', descripcionPreparacion: p.descripcionPreparacion || '',
+      imagenUri: p.imagenUri || '', activo: p.activo !== false,
+      permiteNotas: p.permiteNotas !== false,
+      permiteModificarIngredientes: p.permiteModificarIngredientes !== false,
+    });
     setModalProducto(true);
   };
 
   const guardarProductoActual = () => {
-    const nombre = texto(nombreProducto);
-
-    if (!nombre) {
-      Alert.alert('Falta información', 'Escribe el nombre del producto.');
-      return;
-    }
-
-    const precio = numero(precioProducto);
-
-    let resultado;
-
-    if (productoEditando) {
-      resultado = editarProducto(productoEditando.id, {
-        nombre,
-        categoria: texto(categoriaProducto) || 'General',
-        precio,
-      });
-    } else {
-      resultado = agregarProducto({
-        nombre,
-        categoria: texto(categoriaProducto) || 'General',
-        precio,
-        receta: [],
-        estadoReceta: 'Sin receta',
-      });
-    }
-
-    if (!resultado?.ok) {
-      Alert.alert('No se pudo guardar', resultado?.mensaje || 'Revisa los datos.');
-      return;
-    }
-
+    const d = productoDraft || {};
+    if (!texto(d.nombre)) return Alert.alert('Falta nombre', 'Escribe el nombre del producto.');
+    const payload = {
+      nombre: texto(d.nombre), categoria: texto(d.categoria) || 'General', precio: numero(d.precio),
+      tipoProducto: d.tipoProducto || 'Fijo', descripcionPreparacion: texto(d.descripcionPreparacion),
+      imagenUri: texto(d.imagenUri) || null, activo: d.activo !== false,
+      permiteNotas: d.permiteNotas !== false,
+      permiteModificarIngredientes: d.permiteModificarIngredientes !== false,
+    };
+    const r = productoEditando
+      ? editarProducto(productoEditando.id, payload)
+      : agregarProducto({ ...payload, receta: [], estadoReceta: 'Sin receta' });
+    if (!r?.ok) return Alert.alert('No se pudo guardar', r?.mensaje || 'Revisa los datos.');
     setModalProducto(false);
   };
 
-  const confirmarEliminarProducto = (producto) => {
-    Alert.alert(
-      'Eliminar producto',
-      `¿Eliminar ${producto.nombre}?`,
-      [
-        { text: 'Cancelar', style: 'cancel' },
-        {
-          text: 'Eliminar',
-          style: 'destructive',
-          onPress: () => {
-            const resultado = eliminarProducto(producto.id);
-            if (!resultado?.ok) {
-              Alert.alert('No se puede eliminar', resultado?.mensaje || 'No fue posible eliminarlo.');
-            }
-          },
-        },
-      ]
-    );
-  };
-
-  const abrirReceta = (producto) => {
-    const receta = (producto.receta || []).map((item) => ({ ...item }));
-    let estado = producto.estadoReceta || (receta.length ? 'En proceso' : 'Sin receta');
-
-    if (receta.length && estado === 'Sin receta') estado = 'En proceso';
-    if (!receta.length) estado = 'Sin receta';
-
-    setProductoReceta(producto);
-    setRecetaDraft(receta);
-    setEstadoRecetaDraft(estado);
-    setInsumoSeleccionadoId(null);
-    setCantidadIngrediente('');
-    setBusquedaIngrediente('');
-    setIngredienteEditandoId(null);
+  const abrirReceta = (p) => {
+    setProductoReceta(p);
+    setRecetaDraft(copia(p.receta || []) || []);
+    setEstadoRecetaDraft(p.estadoReceta || ((p.receta || []).length ? 'En proceso' : 'Sin receta'));
     setModalReceta(true);
   };
 
-  const seleccionarEstadoReceta = (estado) => {
-    if (estado === 'Sin receta' && recetaDraft.length > 0) {
-      Alert.alert(
-        'La receta tiene ingredientes',
-        'Para marcarla como “Sin receta”, primero quita los ingredientes.'
-      );
-      return;
-    }
-
-    if (estado === 'Completa' && recetaDraft.length === 0) {
-      Alert.alert('Receta vacía', 'Agrega al menos un ingrediente antes de marcarla como completa.');
-      return;
-    }
-
-    setEstadoRecetaDraft(estado);
-  };
-
-  const limpiarEditorIngrediente = () => {
-    setInsumoSeleccionadoId(null);
-    setCantidadIngrediente('');
-    setIngredienteEditandoId(null);
-  };
-
-  const agregarOActualizarIngrediente = () => {
-    if (!insumoSeleccionadoId) {
-      Alert.alert('Selecciona un insumo', 'Elige el ingrediente que quieres agregar.');
-      return;
-    }
-
-    const cantidad = numero(cantidadIngrediente);
-
-    if (!cantidad || cantidad <= 0) {
-      Alert.alert('Cantidad inválida', 'Escribe una cantidad mayor a 0.');
-      return;
-    }
-
-    const insumo = insumos.find((item) => item.id === insumoSeleccionadoId);
-
-    if (!insumo) {
-      Alert.alert('Insumo no encontrado', 'Ese insumo ya no está disponible.');
-      return;
-    }
-
-    if (ingredienteEditandoId) {
-      setRecetaDraft((actual) =>
-        actual.map((item) =>
-          item.id === ingredienteEditandoId
-            ? {
-                ...item,
-                insumoId: insumo.id,
-                insumoNombre: insumo.nombre,
-                cantidad,
-                unidadBase: insumo.unidadBase || '',
-              }
-            : item
-        )
-      );
-    } else {
-      const existente = recetaDraft.find((item) => item.insumoId === insumo.id);
-
-      if (existente) {
-        setRecetaDraft((actual) =>
-          actual.map((item) =>
-            item.id === existente.id
-              ? {
-                  ...item,
-                  cantidad: numero(item.cantidad) + cantidad,
-                  insumoNombre: insumo.nombre,
-                  unidadBase: insumo.unidadBase || '',
-                }
-              : item
-          )
-        );
-      } else {
-        setRecetaDraft((actual) => [
-          ...actual,
-          {
-            id: `REC_TMP_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-            insumoId: insumo.id,
-            insumoNombre: insumo.nombre,
-            cantidad,
-            unidadBase: insumo.unidadBase || '',
-          },
-        ]);
-      }
-    }
-
-    if (estadoRecetaDraft === 'Sin receta') {
-      setEstadoRecetaDraft('En proceso');
-    }
-
-    limpiarEditorIngrediente();
-  };
-
-  const editarIngrediente = (ingrediente) => {
-    setIngredienteEditandoId(ingrediente.id);
-    setInsumoSeleccionadoId(ingrediente.insumoId);
-    setCantidadIngrediente(String(ingrediente.cantidad ?? ''));
-  };
-
-  const quitarIngrediente = (ingredienteId) => {
-    const nueva = recetaDraft.filter((item) => item.id !== ingredienteId);
-    setRecetaDraft(nueva);
-
-    if (ingredienteEditandoId === ingredienteId) {
-      limpiarEditorIngrediente();
-    }
-
-    if (nueva.length === 0) {
-      setEstadoRecetaDraft('Sin receta');
-    } else if (estadoRecetaDraft === 'Completa') {
-      setEstadoRecetaDraft('En proceso');
-    }
-  };
-
-  const guardarRecetaActual = () => {
+  const guardarReceta = () => {
     if (!productoReceta) return;
-
     let estado = estadoRecetaDraft;
-
-    if (recetaDraft.length === 0) estado = 'Sin receta';
-    if (recetaDraft.length > 0 && estado === 'Sin receta') estado = 'En proceso';
-
-    if (estado === 'Completa' && recetaDraft.length === 0) {
-      Alert.alert('Receta vacía', 'Agrega al menos un ingrediente.');
-      return;
-    }
-
-    const resultado = guardarRecetaProducto({
-      productoId: productoReceta.id,
-      receta: recetaDraft.map((item) => ({
-        id: item.id,
-        insumoId: item.insumoId,
-        insumoNombre:
-          insumos.find((i) => i.id === item.insumoId)?.nombre || item.insumoNombre || '',
-        cantidad: numero(item.cantidad),
-        unidadBase:
-          insumos.find((i) => i.id === item.insumoId)?.unidadBase || item.unidadBase || '',
-      })),
-      estadoReceta: estado,
-    });
-
-    if (!resultado?.ok) {
-      Alert.alert('No se pudo guardar', resultado?.mensaje || 'Revisa la receta.');
-      return;
-    }
-
-    if (estado === 'Completa') {
-      const estadoResultado = cambiarEstadoReceta(productoReceta.id, 'Completa');
-      if (!estadoResultado?.ok) {
-        Alert.alert('No se pudo completar', estadoResultado?.mensaje || 'Revisa la receta.');
-        return;
-      }
-    }
-
+    if (!recetaDraft.length) estado = 'Sin receta';
+    if (recetaDraft.length && estado === 'Sin receta') estado = 'En proceso';
+    const r = guardarRecetaProducto({ productoId: productoReceta.id, receta: recetaDraft, estadoReceta: estado });
+    if (!r?.ok) return Alert.alert('No se pudo guardar', r?.mensaje || 'Revisa la receta.');
     setModalReceta(false);
+  };
+
+  const abrirConfig = (p) => {
+    setConfigDraft({
+      ...copia(p),
+      preparaciones: copia(p.preparaciones || []) || [],
+      presentaciones: copia(p.presentaciones || []) || [],
+      tamanos: copia(p.tamanos || []) || [],
+      seccionesPersonalizacion: copia(p.seccionesPersonalizacion || []) || [],
+    });
+    setConfigTab('Estructura');
+    setModalConfig(true);
+  };
+
+  const guardarConfig = () => {
+    if (!configDraft?.id) return;
+    const r = editarProducto(configDraft.id, {
+      preparaciones: configDraft.preparaciones || [],
+      presentaciones: configDraft.presentaciones || [],
+      tamanos: configDraft.tamanos || [],
+      seccionesPersonalizacion: configDraft.seccionesPersonalizacion || [],
+    });
+    if (!r?.ok) return Alert.alert('No se pudo guardar', r?.mensaje || 'Revisa la configuración.');
+    setModalConfig(false);
+  };
+
+  const agregarPreparacion = () => {
+    Alert.prompt(
+      'Nueva preparación',
+      'Escribe el nombre, por ejemplo Caliente o Fría.',
+      (valor) => {
+        const nombre = texto(valor);
+        if (!nombre) return;
+        if ((configDraft.preparaciones || []).some((x) => x.nombre.toLowerCase() === nombre.toLowerCase())) return;
+        setConfigDraft((d) => ({ ...d, preparaciones: [...(d.preparaciones || []), { id: uid('PREP'), nombre, activo: true }] }));
+      }
+    );
+  };
+
+  const quitarPreparacion = (id) => {
+    const usada = (configDraft.presentaciones || []).some((p) => p.preparacionId === id);
+    if (usada) return Alert.alert('Preparación en uso', 'Primero elimina o edita las presentaciones que usan esta preparación.');
+    setConfigDraft((d) => ({ ...d, preparaciones: (d.preparaciones || []).filter((x) => x.id !== id) }));
+  };
+
+  const abrirNuevaPresentacion = () => {
+    setPresentacionEditandoId(null);
+    setPresentacionDraft({ nombre: '', precio: '', preparacionId: null, receta: [], estadoReceta: 'Sin receta', activa: true });
+    setModalPresentacion(true);
+  };
+
+  const abrirEditarPresentacion = (p) => {
+    setPresentacionEditandoId(p.id);
+    setPresentacionDraft({ ...copia(p), precio: String(p.precio ?? '') });
+    setModalPresentacion(true);
+  };
+
+  const guardarPresentacion = () => {
+    const d = presentacionDraft || {};
+    if (!texto(d.nombre)) return Alert.alert('Falta nombre');
+    if (configDraft.tipoProducto === 'Bebida configurable' && !d.preparacionId) {
+      return Alert.alert('Falta preparación', 'Selecciona a qué preparación pertenece esta presentación.');
+    }
+    const item = {
+      ...d,
+      id: presentacionEditandoId || uid('PRES'),
+      nombre: texto(d.nombre), precio: numero(d.precio),
+      receta: Array.isArray(d.receta) ? d.receta : [],
+      estadoReceta: d.estadoReceta || ((d.receta || []).length ? 'En proceso' : 'Sin receta'),
+    };
+    setConfigDraft((x) => ({
+      ...x,
+      presentaciones: presentacionEditandoId
+        ? (x.presentaciones || []).map((p) => p.id === presentacionEditandoId ? item : p)
+        : [...(x.presentaciones || []), item],
+    }));
+    setModalPresentacion(false);
+  };
+
+  const abrirRecetaPresentacion = (p) => {
+    setPresentacionRecetaId(p.id);
+    setRecetaPresentacionDraft(copia(p.receta || []) || []);
+    setEstadoRecetaPresentacion(p.estadoReceta || ((p.receta || []).length ? 'En proceso' : 'Sin receta'));
+    setModalRecetaPresentacion(true);
+  };
+
+  const guardarRecetaPresentacion = () => {
+    let estado = estadoRecetaPresentacion;
+    if (!recetaPresentacionDraft.length) estado = 'Sin receta';
+    if (recetaPresentacionDraft.length && estado === 'Sin receta') estado = 'En proceso';
+    setConfigDraft((d) => ({
+      ...d,
+      presentaciones: (d.presentaciones || []).map((p) =>
+        p.id === presentacionRecetaId ? { ...p, receta: recetaPresentacionDraft, estadoReceta: estado } : p
+      ),
+    }));
+    setModalRecetaPresentacion(false);
+  };
+
+  const abrirNuevoTamano = () => {
+    setTamanoEditandoId(null);
+    setTamanoDraft({ nombre: '', precio: '', activo: true, reglasSecciones: [] });
+    setModalTamano(true);
+  };
+
+  const abrirEditarTamano = (t) => {
+    setTamanoEditandoId(t.id);
+    setTamanoDraft({ ...copia(t), precio: String(t.precio ?? '') });
+    setModalTamano(true);
+  };
+
+  const guardarTamano = () => {
+    const d = tamanoDraft || {};
+    if (!texto(d.nombre)) return Alert.alert('Falta nombre');
+    const item = { ...d, id: tamanoEditandoId || uid('TAM'), nombre: texto(d.nombre), precio: numero(d.precio), reglasSecciones: d.reglasSecciones || [] };
+    setConfigDraft((x) => ({
+      ...x,
+      tamanos: tamanoEditandoId
+        ? (x.tamanos || []).map((t) => t.id === tamanoEditandoId ? item : t)
+        : [...(x.tamanos || []), item],
+    }));
+    setModalTamano(false);
+  };
+
+  const abrirReglasTamano = (t) => {
+    const secciones = configDraft.seccionesPersonalizacion || [];
+    const existentes = t.reglasSecciones || [];
+    setTamanoReglasId(t.id);
+    setReglasDraft(secciones.map((s) => {
+      const r = existentes.find((x) => x.seccionId === s.id);
+      return {
+        seccionId: s.id,
+        nombre: s.nombre,
+        incluidas: String(r?.incluidas ?? 0),
+        permiteExtras: r?.permiteExtras === true,
+        precioExtra: String(r?.precioExtra ?? 0),
+      };
+    }));
+    setModalReglasTamano(true);
+  };
+
+  const guardarReglasTamano = () => {
+    const reglas = reglasDraft.map((r) => ({
+      seccionId: r.seccionId,
+      incluidas: Math.max(0, Math.floor(numero(r.incluidas))),
+      permiteExtras: r.permiteExtras === true,
+      precioExtra: Math.max(0, numero(r.precioExtra)),
+    }));
+    setConfigDraft((d) => ({
+      ...d,
+      tamanos: (d.tamanos || []).map((t) => t.id === tamanoReglasId ? { ...t, reglasSecciones: reglas } : t),
+    }));
+    setModalReglasTamano(false);
+  };
+
+  const abrirNuevaSeccion = () => {
+    setSeccionEditandoId(null);
+    setSeccionDraft({ nombre: '', tipoSeleccion: 'Única', obligatoria: false, min: '0', max: '1', activa: true, opciones: [] });
+    setModalSeccion(true);
+  };
+
+  const abrirEditarSeccion = (s) => {
+    setSeccionEditandoId(s.id);
+    setSeccionDraft({ ...copia(s), min: String(s.min ?? 0), max: String(s.max ?? 1) });
+    setModalSeccion(true);
+  };
+
+  const guardarSeccion = () => {
+    const d = seccionDraft || {};
+    if (!texto(d.nombre)) return Alert.alert('Falta nombre de la sección');
+    const item = {
+      ...d,
+      id: seccionEditandoId || uid('SEC'),
+      nombre: texto(d.nombre),
+      min: Math.max(0, Math.floor(numero(d.min))),
+      max: Math.max(1, Math.floor(numero(d.max) || 1)),
+      opciones: Array.isArray(d.opciones) ? d.opciones : [],
+    };
+    if (item.tipoSeleccion === 'Única') item.max = 1;
+    setConfigDraft((x) => ({
+      ...x,
+      seccionesPersonalizacion: seccionEditandoId
+        ? (x.seccionesPersonalizacion || []).map((s) => s.id === seccionEditandoId ? item : s)
+        : [...(x.seccionesPersonalizacion || []), item],
+    }));
+    setModalSeccion(false);
+  };
+
+  const abrirNuevaOpcion = (seccionId) => {
+    setSeccionOpcionId(seccionId);
+    setOpcionEditandoId(null);
+    setOpcionDraft({
+      nombre: '', ajustePrecio: '0', accionInventario: 'Agregar', insumoId: null,
+      cantidad: '', reemplazaInsumoId: null, activa: true,
+    });
+    setModalOpcion(true);
+  };
+
+  const abrirEditarOpcion = (seccionId, op) => {
+    setSeccionOpcionId(seccionId);
+    setOpcionEditandoId(op.id);
+    setOpcionDraft({ ...copia(op), ajustePrecio: String(op.ajustePrecio ?? 0), cantidad: String(op.cantidad ?? '') });
+    setModalOpcion(true);
+  };
+
+  const guardarOpcion = () => {
+    const d = opcionDraft || {};
+    if (!texto(d.nombre)) return Alert.alert('Falta nombre de la opción');
+    if (d.accionInventario !== 'Ninguno' && !d.insumoId) {
+      return Alert.alert('Falta insumo', 'Selecciona el insumo que consume esta opción o elige “Ninguno”.');
+    }
+    if (d.accionInventario !== 'Ninguno' && numero(d.cantidad) <= 0) {
+      return Alert.alert('Cantidad inválida', 'Indica cuánto inventario consume esta opción.');
+    }
+    if (d.accionInventario === 'Sustituir' && !d.reemplazaInsumoId) {
+      return Alert.alert('Falta sustitución', 'Selecciona qué insumo de la receta base sustituye esta opción.');
+    }
+    const ins = insumos.find((i) => i.id === d.insumoId);
+    const rep = insumos.find((i) => i.id === d.reemplazaInsumoId);
+    const item = {
+      ...d,
+      id: opcionEditandoId || uid('OP'),
+      nombre: texto(d.nombre),
+      ajustePrecio: numero(d.ajustePrecio),
+      cantidad: d.accionInventario === 'Ninguno' ? 0 : numero(d.cantidad),
+      insumoNombre: ins?.nombre || '',
+      reemplazaInsumoNombre: rep?.nombre || '',
+      insumoId: d.accionInventario === 'Ninguno' ? null : d.insumoId,
+      reemplazaInsumoId: d.accionInventario === 'Sustituir' ? d.reemplazaInsumoId : null,
+    };
+    setConfigDraft((x) => ({
+      ...x,
+      seccionesPersonalizacion: (x.seccionesPersonalizacion || []).map((s) => {
+        if (s.id !== seccionOpcionId) return s;
+        return {
+          ...s,
+          opciones: opcionEditandoId
+            ? (s.opciones || []).map((o) => o.id === opcionEditandoId ? item : o)
+            : [...(s.opciones || []), item],
+        };
+      }),
+    }));
+    setModalOpcion(false);
   };
 
   const abrirNuevoInsumo = () => {
     setInsumoEditando(null);
-    setNombreInsumo('');
-    setCategoriaInsumo('General');
-    setPresentacionInsumo('');
-    setContenidoInsumo('');
-    setUnidadInsumo('unidad');
-    setStockMinimoInsumo('');
+    setInsumoDraft({ nombre: '', categoria: 'General', presentacionCompra: '', contenidoPresentacion: '', unidadBase: 'unidad', stockMinimo: '' });
     setModalInsumo(true);
   };
 
-  const abrirEditarInsumo = (insumo) => {
-    setInsumoEditando(insumo);
-    setNombreInsumo(insumo.nombre || '');
-    setCategoriaInsumo(insumo.categoria || 'General');
-    setPresentacionInsumo(insumo.presentacionCompra || insumo.presentacion || '');
-    setContenidoInsumo(String(insumo.contenidoPresentacion ?? ''));
-    setUnidadInsumo(insumo.unidadBase || 'unidad');
-    setStockMinimoInsumo(String(insumo.stockMinimo ?? ''));
+  const abrirEditarInsumo = (i) => {
+    setInsumoEditando(i);
+    setInsumoDraft({
+      nombre: i.nombre || '', categoria: i.categoria || 'General',
+      presentacionCompra: i.presentacionCompra || i.presentacion || '',
+      contenidoPresentacion: String(i.contenidoPresentacion ?? ''), unidadBase: i.unidadBase || 'unidad',
+      stockMinimo: String(i.stockMinimo ?? ''),
+    });
     setModalInsumo(true);
   };
 
-  const guardarInsumoActual = () => {
-    const nombre = texto(nombreInsumo);
-
-    if (!nombre) {
-      Alert.alert('Falta información', 'Escribe el nombre del insumo.');
-      return;
-    }
-
-    let resultado;
-
-    if (insumoEditando) {
-      resultado = editarInsumo(insumoEditando.id, {
-        nombre,
-        categoria: texto(categoriaInsumo) || 'General',
-        presentacionCompra: texto(presentacionInsumo),
-        contenidoPresentacion: numero(contenidoInsumo),
-        unidadBase: texto(unidadInsumo) || 'unidad',
-        stockMinimo: numero(stockMinimoInsumo),
-      });
-    } else {
-      resultado = agregarInsumo({
-        nombre,
-        categoria: texto(categoriaInsumo) || 'General',
-        presentacionCompra: texto(presentacionInsumo),
-        presentacion: texto(presentacionInsumo),
-        contenidoPresentacion: numero(contenidoInsumo),
-        unidadBase: texto(unidadInsumo) || 'unidad',
-        stockMinimo: numero(stockMinimoInsumo),
-      });
-    }
-
-    if (!resultado?.ok) {
-      Alert.alert('No se pudo guardar', resultado?.mensaje || 'Revisa los datos.');
-      return;
-    }
-
+  const guardarInsumo = () => {
+    const d = insumoDraft || {};
+    if (!texto(d.nombre)) return Alert.alert('Falta nombre');
+    const payload = {
+      nombre: texto(d.nombre), categoria: texto(d.categoria) || 'General',
+      presentacionCompra: texto(d.presentacionCompra), presentacion: texto(d.presentacionCompra),
+      contenidoPresentacion: numero(d.contenidoPresentacion), unidadBase: texto(d.unidadBase) || 'unidad',
+      stockMinimo: numero(d.stockMinimo),
+    };
+    const r = insumoEditando ? editarInsumo(insumoEditando.id, payload) : agregarInsumo(payload);
+    if (!r?.ok) return Alert.alert('No se pudo guardar', r?.mensaje || 'Revisa los datos.');
     setModalInsumo(false);
   };
 
-  const confirmarEliminarInsumo = (insumo) => {
-    Alert.alert(
-      'Eliminar insumo',
-      `¿Eliminar ${insumo.nombre}?`,
-      [
-        { text: 'Cancelar', style: 'cancel' },
-        {
-          text: 'Eliminar',
-          style: 'destructive',
-          onPress: () => {
-            const resultado = eliminarInsumo(insumo.id);
-            if (!resultado?.ok) {
-              Alert.alert('No se puede eliminar', resultado?.mensaje || 'No fue posible eliminarlo.');
-            }
-          },
-        },
-      ]
-    );
+  const confirmarEliminarProducto = (p) => {
+    Alert.alert('Eliminar producto', `¿Eliminar ${p.nombre}?`, [
+      { text: 'Cancelar', style: 'cancel' },
+      { text: 'Eliminar', style: 'destructive', onPress: () => {
+        const r = eliminarProducto(p.id);
+        if (!r?.ok) Alert.alert('No se puede eliminar', r?.mensaje || 'No fue posible.');
+      } },
+    ]);
   };
 
   return (
     <SafeAreaView style={styles.pantalla}>
       <View style={styles.header}>
-        <View style={styles.headerTexto}>
+        <View style={{ flex: 1 }}>
           <Text style={styles.titulo}>Productos y recetas</Text>
-          <Text style={styles.subtitulo}>Catálogo, recetas e insumos de Casa Shamy</Text>
+          <Text style={styles.subtitulo}>Catálogo flexible para vender desde hoy, aun sin receta completa.</Text>
         </View>
-
-        {volver ? (
-          <Boton titulo="Volver" tipo="secundario" compacto onPress={volver} />
-        ) : null}
+        {volver ? <Boton titulo="Volver" tipo="secundario" compacto onPress={volver} /> : null}
       </View>
 
-      <View style={styles.tabsPrincipales}>
-        <Chip texto="Productos" activo={seccion === 'Productos'} onPress={() => setSeccion('Productos')} />
-        <Chip texto="Insumos" activo={seccion === 'Insumos'} onPress={() => setSeccion('Insumos')} />
+      <View style={styles.tabsTop}>
+        <Chip label="Productos" activo={seccion === 'Productos'} onPress={() => setSeccion('Productos')} />
+        <Chip label="Insumos" activo={seccion === 'Insumos'} onPress={() => setSeccion('Insumos')} />
       </View>
 
       {seccion === 'Productos' ? (
         <ScrollView contentContainerStyle={styles.contenido} keyboardShouldPersistTaps="handled">
-          <View style={styles.accionesArriba}>
-            <View style={styles.flex1}>
-              <TextInput
-                value={busquedaProducto}
-                onChangeText={setBusquedaProducto}
-                placeholder="Buscar producto..."
-                style={styles.inputBusqueda}
-                placeholderTextColor="#9A9A9A"
-              />
-            </View>
-            <Boton titulo="+ Producto" onPress={abrirNuevoProducto} compacto />
+          <View style={styles.filaAcciones}>
+            <TextInput
+              value={buscarProducto}
+              onChangeText={setBuscarProducto}
+              placeholder="Buscar producto..."
+              placeholderTextColor="#A39A92"
+              style={[styles.input, { flex: 1 }]}
+            />
+            <Boton titulo="+ Producto" compacto onPress={abrirNuevoProducto} />
           </View>
 
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filtrosFila}>
-            {FILTROS_PRODUCTOS.map((filtro) => (
-              <Chip
-                key={filtro}
-                texto={filtro}
-                activo={filtroProducto === filtro}
-                onPress={() => setFiltroProducto(filtro)}
-              />
-            ))}
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipsFila}>
+            {FILTROS.map((f) => <Chip key={f} label={f} activo={filtro === f} onPress={() => setFiltro(f)} />)}
           </ScrollView>
 
-          <Text style={styles.resumenTexto}>
-            {productosVisibles.length} producto{productosVisibles.length === 1 ? '' : 's'}
-          </Text>
-
           {productosVisibles.length === 0 ? (
-            <View style={styles.vacio}>
-              <Text style={styles.vacioTitulo}>No hay productos en este filtro</Text>
-              <Text style={styles.vacioTexto}>Puedes crear uno nuevo o cambiar el filtro.</Text>
-            </View>
-          ) : (
-            productosVisibles.map((producto) => {
-              const estado = estadoVisible(producto);
-              const costo = costoReceta(producto);
-              const utilidad = costo.total === null ? null : numero(producto.precio) - costo.total;
-
-              return (
-                <View key={producto.id} style={styles.card}>
-                  <View style={styles.cardFilaSuperior}>
-                    <View style={styles.flex1}>
-                      <Text style={styles.cardTitulo}>{producto.nombre}</Text>
-                      <Text style={styles.cardMeta}>{producto.categoria || 'General'}</Text>
-                    </View>
-                    <View style={styles.precioCaja}>
-                      <Text style={styles.precioEtiqueta}>Precio</Text>
-                      <Text style={styles.precioTexto}>{dinero(producto.precio)}</Text>
-                    </View>
+            <View style={styles.vacio}><Text style={styles.vacioTitulo}>No hay productos</Text><Text style={styles.vacioTexto}>Crea el primero para empezar a registrar ventas.</Text></View>
+          ) : productosVisibles.map((p) => {
+            const costo = costoReceta(p.receta || []);
+            const estado = p.estadoReceta || ((p.receta || []).length ? 'En proceso' : 'Sin receta');
+            return (
+              <View key={p.id} style={styles.card}>
+                <View style={styles.cardTop}>
+                  <View style={styles.iconoProducto}><Text style={styles.iconoProductoTxt}>{p.tipoProducto === 'Bebida configurable' ? '☕' : p.tipoProducto === 'Arma el tuyo' ? '🥗' : '▣'}</Text></View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.cardTitulo}>{p.nombre}</Text>
+                    <Text style={styles.cardMeta}>{p.categoria || 'General'} · {p.tipoProducto || 'Fijo'}</Text>
                   </View>
-
-                  <View style={styles.estadoFila}>
-                    <View
-                      style={[
-                        styles.estadoBadge,
-                        estado === 'Receta completa' && styles.estadoCompleto,
-                        estado === 'En proceso' && styles.estadoProceso,
-                        estado === 'Sin receta' && styles.estadoSin,
-                      ]}
-                    >
-                      <Text style={styles.estadoTexto}>{estado}</Text>
-                    </View>
-                    <Text style={styles.ingredientesTexto}>
-                      {(producto.receta || []).length} ingrediente{(producto.receta || []).length === 1 ? '' : 's'}
-                    </Text>
-                  </View>
-
-                  <View style={styles.metricasFila}>
-                    <View style={styles.metrica}>
-                      <Text style={styles.metricaEtiqueta}>Costo actual</Text>
-                      <Text style={styles.metricaValor}>{costo.texto}</Text>
-                    </View>
-                    <View style={styles.metrica}>
-                      <Text style={styles.metricaEtiqueta}>Utilidad bruta</Text>
-                      <Text style={styles.metricaValor}>
-                        {utilidad === null ? 'Pendiente' : dinero(utilidad)}
-                      </Text>
-                    </View>
-                  </View>
-
-                  <View style={styles.botonesCard}>
-                    <Boton titulo="Receta" onPress={() => abrirReceta(producto)} compacto />
-                    <Boton
-                      titulo="Editar"
-                      tipo="secundario"
-                      onPress={() => abrirEditarProducto(producto)}
-                      compacto
-                    />
-                    <Boton
-                      titulo="Eliminar"
-                      tipo="peligro"
-                      onPress={() => confirmarEliminarProducto(producto)}
-                      compacto
-                    />
+                  <View style={{ alignItems: 'flex-end' }}>
+                    <Text style={styles.precio}>{dinero(p.precio)}</Text>
+                    {p.activo === false && <Estado tipo="peligro">Inactivo</Estado>}
                   </View>
                 </View>
-              );
-            })
-          )}
+
+                <View style={styles.estadosFila}>
+                  <Estado tipo={estado === 'Completa' ? 'ok' : 'aviso'}>{estado}</Estado>
+                  <Estado tipo={costo.estado === 'ok' ? 'ok' : 'aviso'}>{costo.texto}</Estado>
+                </View>
+
+                {!!p.descripcionPreparacion && <Text style={styles.preparacionResumen}>Preparación: {p.descripcionPreparacion}</Text>}
+
+                <View style={styles.botonesCard}>
+                  <Boton titulo="Editar" tipo="suave" compacto onPress={() => abrirEditarProducto(p)} />
+                  <Boton titulo="Receta" tipo="suave" compacto onPress={() => abrirReceta(p)} />
+                  <Boton titulo="Configurar" compacto onPress={() => abrirConfig(p)} />
+                  <Boton titulo="Eliminar" tipo="peligro" compacto onPress={() => confirmarEliminarProducto(p)} />
+                </View>
+              </View>
+            );
+          })}
         </ScrollView>
       ) : (
         <ScrollView contentContainerStyle={styles.contenido} keyboardShouldPersistTaps="handled">
-          <View style={styles.accionesArriba}>
-            <View style={styles.flex1}>
-              <TextInput
-                value={busquedaInsumo}
-                onChangeText={setBusquedaInsumo}
-                placeholder="Buscar insumo..."
-                style={styles.inputBusqueda}
-                placeholderTextColor="#9A9A9A"
-              />
-            </View>
-            <Boton titulo="+ Insumo" onPress={abrirNuevoInsumo} compacto />
+          <View style={styles.filaAcciones}>
+            <TextInput
+              value={buscarInsumo}
+              onChangeText={setBuscarInsumo}
+              placeholder="Buscar insumo..."
+              placeholderTextColor="#A39A92"
+              style={[styles.input, { flex: 1 }]}
+            />
+            <Boton titulo="+ Insumo" compacto onPress={abrirNuevoInsumo} />
           </View>
-
-          <Text style={styles.resumenTexto}>
-            {insumosVisibles.length} insumo{insumosVisibles.length === 1 ? '' : 's'}
-          </Text>
-
           {insumosVisibles.length === 0 ? (
-            <View style={styles.vacio}>
-              <Text style={styles.vacioTitulo}>No hay insumos</Text>
-              <Text style={styles.vacioTexto}>Agrega el primero para comenzar a construir recetas.</Text>
-            </View>
-          ) : (
-            insumosVisibles.map((insumo) => {
-              const existencia = existenciaDe(insumo);
-              const pendienteCosto = (insumo.lotes || []).some(
-                (lote) => lote.costoPendiente && numero(lote.cantidadDisponible) > 0
-              );
-
-              return (
-                <View key={insumo.id} style={styles.card}>
-                  <View style={styles.cardFilaSuperior}>
-                    <View style={styles.flex1}>
-                      <Text style={styles.cardTitulo}>{insumo.nombre}</Text>
-                      <Text style={styles.cardMeta}>{insumo.categoria || 'General'}</Text>
-                    </View>
-                    <View style={styles.stockCaja}>
-                      <Text style={styles.precioEtiqueta}>Existencia</Text>
-                      <Text style={styles.stockTexto}>
-                        {Number(existencia || 0).toLocaleString('es-MX', { maximumFractionDigits: 3 })}{' '}
-                        {insumo.unidadBase || ''}
-                      </Text>
-                    </View>
-                  </View>
-
-                  <Text style={styles.detalleTexto}>
-                    Presentación: {insumo.presentacionCompra || insumo.presentacion || 'Sin definir'}
-                  </Text>
-                  <Text style={styles.detalleTexto}>
-                    Contenido por presentación:{' '}
-                    {Number(insumo.contenidoPresentacion || 0).toLocaleString('es-MX', {
-                      maximumFractionDigits: 3,
-                    })}{' '}
-                    {insumo.unidadBase || ''}
-                  </Text>
-
-                  {pendienteCosto ? (
-                    <View style={styles.avisoPendiente}>
-                      <Text style={styles.avisoPendienteTexto}>Hay inventario con costo pendiente</Text>
-                    </View>
-                  ) : null}
-
-                  <View style={styles.botonesCard}>
-                    <Boton
-                      titulo="Editar"
-                      tipo="secundario"
-                      onPress={() => abrirEditarInsumo(insumo)}
-                      compacto
-                    />
-                    <Boton
-                      titulo="Eliminar"
-                      tipo="peligro"
-                      onPress={() => confirmarEliminarInsumo(insumo)}
-                      compacto
-                    />
-                  </View>
+            <View style={styles.vacio}><Text style={styles.vacioTitulo}>No hay insumos</Text></View>
+          ) : insumosVisibles.map((i) => (
+            <View key={i.id} style={styles.card}>
+              <View style={styles.cardTop}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.cardTitulo}>{i.nombre}</Text>
+                  <Text style={styles.cardMeta}>{i.categoria || 'General'} · {i.unidadBase || 'unidad'}</Text>
                 </View>
-              );
-            })
-          )}
+              </View>
+              <View style={styles.botonesCard}>
+                <Boton titulo="Editar" tipo="suave" compacto onPress={() => abrirEditarInsumo(i)} />
+                <Boton titulo="Eliminar" tipo="peligro" compacto onPress={() => {
+                  Alert.alert('Eliminar insumo', `¿Eliminar ${i.nombre}?`, [
+                    { text: 'Cancelar', style: 'cancel' },
+                    { text: 'Eliminar', style: 'destructive', onPress: () => {
+                      const r = eliminarInsumo(i.id);
+                      if (!r?.ok) Alert.alert('No se puede eliminar', r?.mensaje || 'No fue posible.');
+                    } },
+                  ]);
+                }} />
+              </View>
+            </View>
+          ))}
         </ScrollView>
       )}
 
-      <ModalBase
-        visible={modalProducto}
-        titulo={productoEditando ? 'Editar producto' : 'Nuevo producto'}
-        onCerrar={() => setModalProducto(false)}
-      >
-        <Campo etiqueta="Nombre" value={nombreProducto} onChangeText={setNombreProducto} placeholder="Ej. Latte" />
-        <Campo
-          etiqueta="Categoría"
-          value={categoriaProducto}
-          onChangeText={setCategoriaProducto}
-          placeholder="Ej. Bebidas calientes"
-        />
-        <Campo
-          etiqueta="Precio de venta"
-          value={precioProducto}
-          onChangeText={setPrecioProducto}
-          placeholder="0.00"
-          keyboardType="decimal-pad"
-        />
+      <ModalBase visible={modalProducto} titulo={productoEditando ? 'Editar producto' : 'Nuevo producto'} onCerrar={() => setModalProducto(false)}>
+        {productoDraft && <>
+          <Campo etiqueta="Nombre" value={productoDraft.nombre} onChangeText={(v) => setProductoDraft({ ...productoDraft, nombre: v })} placeholder="Ej. Latte" />
+          <Campo etiqueta="Categoría" value={productoDraft.categoria} onChangeText={(v) => setProductoDraft({ ...productoDraft, categoria: v })} placeholder="Ej. Bebidas" />
+          <Campo etiqueta="Precio base" value={productoDraft.precio} onChangeText={(v) => setProductoDraft({ ...productoDraft, precio: v })} keyboardType="decimal-pad" ayuda="Las variantes o personalizaciones pueden modificar este precio." />
 
-        <Boton titulo={productoEditando ? 'Guardar cambios' : 'Crear producto'} onPress={guardarProductoActual} />
-      </ModalBase>
+          <Text style={styles.etiqueta}>Tipo de producto</Text>
+          <View style={styles.chipsWrap}>
+            {TIPOS_PRODUCTO.map((t) => <Chip key={t} label={t} activo={productoDraft.tipoProducto === t} onPress={() => setProductoDraft({ ...productoDraft, tipoProducto: t })} />)}
+          </View>
 
-      <ModalBase
-        visible={modalReceta}
-        titulo={productoReceta ? `Receta · ${productoReceta.nombre}` : 'Receta'}
-        onCerrar={() => setModalReceta(false)}
-      >
-        <Text style={styles.seccionTitulo}>Estado de la receta</Text>
-        <View style={styles.chipsWrap}>
-          {ESTADOS.map((estado) => (
-            <Chip
-              key={estado}
-              texto={estado === 'Completa' ? 'Receta completa' : estado}
-              activo={estadoRecetaDraft === estado}
-              onPress={() => seleccionarEstadoReceta(estado)}
-            />
-          ))}
-        </View>
-
-        <View style={styles.separador} />
-
-        <Text style={styles.seccionTitulo}>Ingredientes actuales</Text>
-
-        {recetaDraft.length === 0 ? (
-          <Text style={styles.ayudaTexto}>Todavía no hay ingredientes.</Text>
-        ) : (
-          recetaDraft.map((ingrediente) => {
-            const insumo = insumos.find((item) => item.id === ingrediente.insumoId);
-            return (
-              <View key={ingrediente.id} style={styles.ingredienteCard}>
-                <View style={styles.flex1}>
-                  <Text style={styles.ingredienteNombre}>
-                    {insumo?.nombre || ingrediente.insumoNombre || 'Insumo'}
-                  </Text>
-                  <Text style={styles.ingredienteCantidad}>
-                    {Number(ingrediente.cantidad || 0).toLocaleString('es-MX', {
-                      maximumFractionDigits: 4,
-                    })}{' '}
-                    {insumo?.unidadBase || ingrediente.unidadBase || ''}
-                  </Text>
-                </View>
-                <Boton titulo="Editar" tipo="secundario" compacto onPress={() => editarIngrediente(ingrediente)} />
-                <Boton titulo="Quitar" tipo="peligro" compacto onPress={() => quitarIngrediente(ingrediente.id)} />
-              </View>
-            );
-          })
-        )}
-
-        <View style={styles.separador} />
-
-        <Text style={styles.seccionTitulo}>
-          {ingredienteEditandoId ? 'Editar ingrediente' : 'Agregar ingrediente'}
-        </Text>
-
-        <TextInput
-          value={busquedaIngrediente}
-          onChangeText={setBusquedaIngrediente}
-          placeholder="Buscar insumo..."
-          style={styles.inputBusqueda}
-          placeholderTextColor="#9A9A9A"
-        />
-
-        <View style={styles.listaInsumosReceta}>
-          {insumosParaReceta.length === 0 ? (
-            <Text style={styles.ayudaTexto}>No hay insumos que coincidan.</Text>
-          ) : (
-            insumosParaReceta.map((insumo) => (
-              <Pressable
-                key={insumo.id}
-                onPress={() => setInsumoSeleccionadoId(insumo.id)}
-                style={[
-                  styles.insumoOpcion,
-                  insumoSeleccionadoId === insumo.id && styles.insumoOpcionActiva,
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.insumoOpcionTexto,
-                    insumoSeleccionadoId === insumo.id && styles.insumoOpcionTextoActivo,
-                  ]}
-                >
-                  {insumo.nombre} · {insumo.unidadBase || 'unidad'}
-                </Text>
-              </Pressable>
-            ))
-          )}
-        </View>
-
-        <Campo
-          etiqueta="Cantidad usada por producto"
-          value={cantidadIngrediente}
-          onChangeText={setCantidadIngrediente}
-          placeholder="Ej. 250"
-          keyboardType="decimal-pad"
-        />
-
-        <View style={styles.botonesModalFila}>
-          {ingredienteEditandoId ? (
-            <Boton titulo="Cancelar edición" tipo="secundario" onPress={limpiarEditorIngrediente} />
-          ) : null}
-          <Boton
-            titulo={ingredienteEditandoId ? 'Actualizar ingrediente' : 'Agregar ingrediente'}
-            onPress={agregarOActualizarIngrediente}
+          <Campo
+            etiqueta="Descripción / preparación"
+            value={productoDraft.descripcionPreparacion}
+            onChangeText={(v) => setProductoDraft({ ...productoDraft, descripcionPreparacion: v })}
+            multiline
+            placeholder="Instrucciones que el personal puede consultar durante la preparación."
           />
-        </View>
+          <Campo etiqueta="Imagen (opcional)" value={productoDraft.imagenUri} onChangeText={(v) => setProductoDraft({ ...productoDraft, imagenUri: v })} placeholder="Se conectará al selector visual de ventas." />
 
-        <View style={styles.separador} />
+          <Toggle label="Producto activo" value={productoDraft.activo} onChange={(v) => setProductoDraft({ ...productoDraft, activo: v })} />
+          <Toggle label="Permitir notas del cliente" value={productoDraft.permiteNotas} onChange={(v) => setProductoDraft({ ...productoDraft, permiteNotas: v })} />
+          <Toggle label="Permitir agregar o quitar ingredientes" value={productoDraft.permiteModificarIngredientes} onChange={(v) => setProductoDraft({ ...productoDraft, permiteModificarIngredientes: v })} />
 
-        <Boton titulo="Guardar receta" onPress={guardarRecetaActual} />
+          <Boton titulo="Guardar producto" onPress={guardarProductoActual} />
+        </>}
       </ModalBase>
 
-      <ModalBase
-        visible={modalInsumo}
-        titulo={insumoEditando ? 'Editar insumo' : 'Nuevo insumo'}
-        onCerrar={() => setModalInsumo(false)}
-      >
-        <Campo etiqueta="Nombre" value={nombreInsumo} onChangeText={setNombreInsumo} placeholder="Ej. Leche entera" />
-        <Campo
-          etiqueta="Categoría"
-          value={categoriaInsumo}
-          onChangeText={setCategoriaInsumo}
-          placeholder="Ej. Lácteos"
-        />
-        <Campo
-          etiqueta="Presentación de compra"
-          value={presentacionInsumo}
-          onChangeText={setPresentacionInsumo}
-          placeholder="Ej. Galón, bolsa, caja"
-        />
-        <Campo
-          etiqueta="Contenido por presentación"
-          value={contenidoInsumo}
-          onChangeText={setContenidoInsumo}
-          placeholder="Ej. 3785"
-          keyboardType="decimal-pad"
-        />
-        <Campo
-          etiqueta="Unidad base"
-          value={unidadInsumo}
-          onChangeText={setUnidadInsumo}
-          placeholder="ml, g, pieza..."
-        />
-        <Campo
-          etiqueta="Stock mínimo"
-          value={stockMinimoInsumo}
-          onChangeText={setStockMinimoInsumo}
-          placeholder="0"
-          keyboardType="decimal-pad"
-        />
+      <ModalBase visible={modalReceta} titulo={`Receta${productoReceta ? ` · ${productoReceta.nombre}` : ''}`} onCerrar={() => setModalReceta(false)}>
+        <Text style={styles.infoCaja}>Puedes dejar la receta vacía o en proceso. El producto seguirá pudiéndose vender y su costo quedará pendiente.</Text>
+        <RecetaEditor receta={recetaDraft} onChange={setRecetaDraft} insumos={insumos} estado={estadoRecetaDraft} onEstadoChange={setEstadoRecetaDraft} />
+        <View style={{ height: 16 }} />
+        <Boton titulo="Guardar receta" onPress={guardarReceta} />
+      </ModalBase>
 
-        <Text style={styles.ayudaTexto}>
-          Aquí solo editas la ficha del insumo. Existencias y costos se manejan desde Inventario.
-        </Text>
+      <ModalBase visible={modalConfig} titulo={`Configurar${configDraft ? ` · ${configDraft.nombre}` : ''}`} onCerrar={() => setModalConfig(false)}>
+        {configDraft && <>
+          <View style={styles.chipsWrap}>
+            <Chip label="Estructura" activo={configTab === 'Estructura'} onPress={() => setConfigTab('Estructura')} />
+            <Chip label="Personalizaciones" activo={configTab === 'Personalizaciones'} onPress={() => setConfigTab('Personalizaciones')} />
+          </View>
 
-        <Boton titulo={insumoEditando ? 'Guardar cambios' : 'Crear insumo'} onPress={guardarInsumoActual} />
+          {configTab === 'Estructura' ? <>
+            {configDraft.tipoProducto === 'Bebida configurable' && <>
+              <EncabezadoSeccion titulo="Preparaciones" texto="La base es el producto. Después el cliente elige preparación y presentación." />
+              <View style={styles.chipsWrap}>
+                {(configDraft.preparaciones || []).map((p) => (
+                  <Pressable key={p.id} onLongPress={() => quitarPreparacion(p.id)} style={styles.chipGestion}><Text style={styles.chipGestionTxt}>{p.nombre}</Text><Text style={styles.chipGestionX}> ×</Text></Pressable>
+                ))}
+              </View>
+              <Boton titulo="+ Preparación" tipo="suave" onPress={agregarPreparacion} />
+            </>}
+
+            {(configDraft.tipoProducto === 'Bebida configurable' || configDraft.tipoProducto === 'Fijo') && <>
+              <EncabezadoSeccion titulo={configDraft.tipoProducto === 'Bebida configurable' ? 'Presentaciones' : 'Variantes / presentaciones'} texto="Cada una puede tener precio y receta propios." />
+              {(configDraft.presentaciones || []).length === 0 && <Text style={styles.vacioTexto}>No has creado presentaciones.</Text>}
+              {(configDraft.presentaciones || []).map((p) => {
+                const prep = (configDraft.preparaciones || []).find((x) => x.id === p.preparacionId);
+                return <View key={p.id} style={styles.subCard}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.subCardTitulo}>{p.nombre}</Text>
+                    <Text style={styles.subCardMeta}>{prep ? `${prep.nombre} · ` : ''}{dinero(p.precio)}</Text>
+                    <Text style={styles.subCardMeta}>{p.estadoReceta || 'Sin receta'}</Text>
+                  </View>
+                  <View style={styles.subCardBotones}>
+                    <Boton titulo="Receta" tipo="suave" compacto onPress={() => abrirRecetaPresentacion(p)} />
+                    <Boton titulo="Editar" tipo="suave" compacto onPress={() => abrirEditarPresentacion(p)} />
+                    <Boton titulo="Quitar" tipo="peligro" compacto onPress={() => setConfigDraft((d) => ({ ...d, presentaciones: (d.presentaciones || []).filter((x) => x.id !== p.id) }))} />
+                  </View>
+                </View>;
+              })}
+              <Boton titulo="+ Presentación" onPress={abrirNuevaPresentacion} />
+            </>}
+
+            {configDraft.tipoProducto === 'Arma el tuyo' && <>
+              <EncabezadoSeccion titulo="Tamaños" texto="Cada tamaño tendrá precio y distintas cantidades incluidas por sección." />
+              {(configDraft.tamanos || []).length === 0 && <Text style={styles.vacioTexto}>No has creado tamaños.</Text>}
+              {(configDraft.tamanos || []).map((t) => <View key={t.id} style={styles.subCard}>
+                <View style={{ flex: 1 }}><Text style={styles.subCardTitulo}>{t.nombre}</Text><Text style={styles.subCardMeta}>{dinero(t.precio)}</Text></View>
+                <View style={styles.subCardBotones}>
+                  <Boton titulo="Límites" tipo="suave" compacto onPress={() => abrirReglasTamano(t)} />
+                  <Boton titulo="Editar" tipo="suave" compacto onPress={() => abrirEditarTamano(t)} />
+                  <Boton titulo="Quitar" tipo="peligro" compacto onPress={() => setConfigDraft((d) => ({ ...d, tamanos: (d.tamanos || []).filter((x) => x.id !== t.id) }))} />
+                </View>
+              </View>)}
+              <Boton titulo="+ Tamaño" onPress={abrirNuevoTamano} />
+              {(configDraft.seccionesPersonalizacion || []).length === 0 && <Text style={styles.infoCaja}>Primero crea las secciones en “Personalizaciones”; después vuelve aquí y configura los límites de cada tamaño.</Text>}
+            </>}
+          </> : <>
+            <EncabezadoSeccion titulo="Secciones de personalización" texto="Tú decides los nombres: leche, esencia, foam, base, proteína, ingredientes, aderezo o cualquier otra." />
+            {(configDraft.seccionesPersonalizacion || []).length === 0 && <Text style={styles.vacioTexto}>No hay secciones todavía.</Text>}
+            {(configDraft.seccionesPersonalizacion || []).map((s) => <View key={s.id} style={styles.subCardCol}>
+              <View style={styles.subCardTop}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.subCardTitulo}>{s.nombre}</Text>
+                  <Text style={styles.subCardMeta}>{s.tipoSeleccion || 'Única'} · {s.obligatoria ? 'Obligatoria' : 'Opcional'} · {s.opciones?.length || 0} opciones</Text>
+                </View>
+                <Boton titulo="Editar" tipo="suave" compacto onPress={() => abrirEditarSeccion(s)} />
+              </View>
+              {(s.opciones || []).map((o) => <Pressable key={o.id} onPress={() => abrirEditarOpcion(s.id, o)} style={styles.opcionConfig}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.opcionTitulo}>{o.nombre}</Text>
+                  <Text style={styles.opcionMeta}>{numero(o.ajustePrecio) ? `${numero(o.ajustePrecio) > 0 ? '+' : ''}${dinero(o.ajustePrecio)}` : 'Sin costo extra'} · {o.accionInventario || 'Ninguno'}{o.insumoNombre ? ` · ${o.cantidad} ${o.insumoNombre}` : ''}</Text>
+                </View>
+                <Text style={styles.editarMini}>Editar</Text>
+              </Pressable>)}
+              <Boton titulo="+ Opción" tipo="suave" compacto onPress={() => abrirNuevaOpcion(s.id)} />
+              <Boton titulo="Eliminar sección" tipo="peligro" compacto onPress={() => setConfigDraft((d) => ({ ...d, seccionesPersonalizacion: (d.seccionesPersonalizacion || []).filter((x) => x.id !== s.id) }))} />
+            </View>)}
+            <Boton titulo="+ Sección" onPress={abrirNuevaSeccion} />
+          </>}
+
+          <View style={{ height: 18 }} />
+          <Boton titulo="Guardar configuración" onPress={guardarConfig} />
+        </>}
+      </ModalBase>
+
+      <ModalBase visible={modalPresentacion} titulo={presentacionEditandoId ? 'Editar presentación' : 'Nueva presentación'} onCerrar={() => setModalPresentacion(false)} alto="78%">
+        {presentacionDraft && <>
+          <Campo etiqueta="Nombre" value={presentacionDraft.nombre} onChangeText={(v) => setPresentacionDraft({ ...presentacionDraft, nombre: v })} placeholder="Ej. 16 oz" />
+          <Campo etiqueta="Precio de esta presentación" value={presentacionDraft.precio} onChangeText={(v) => setPresentacionDraft({ ...presentacionDraft, precio: v })} keyboardType="decimal-pad" />
+          {configDraft?.tipoProducto === 'Bebida configurable' && <>
+            <Text style={styles.etiqueta}>Preparación</Text>
+            <View style={styles.chipsWrap}>{(configDraft.preparaciones || []).map((p) => <Chip key={p.id} label={p.nombre} activo={presentacionDraft.preparacionId === p.id} onPress={() => setPresentacionDraft({ ...presentacionDraft, preparacionId: p.id })} />)}</View>
+          </>}
+          <Toggle label="Activa" value={presentacionDraft.activa !== false} onChange={(v) => setPresentacionDraft({ ...presentacionDraft, activa: v })} />
+          <Boton titulo="Guardar presentación" onPress={guardarPresentacion} />
+        </>}
+      </ModalBase>
+
+      <ModalBase visible={modalRecetaPresentacion} titulo="Receta de presentación" onCerrar={() => setModalRecetaPresentacion(false)}>
+        <Text style={styles.infoCaja}>Esta receta permite que 16 oz, 24 oz, taza u otra variante consuman cantidades diferentes.</Text>
+        <RecetaEditor receta={recetaPresentacionDraft} onChange={setRecetaPresentacionDraft} insumos={insumos} estado={estadoRecetaPresentacion} onEstadoChange={setEstadoRecetaPresentacion} />
+        <View style={{ height: 16 }} />
+        <Boton titulo="Guardar receta de presentación" onPress={guardarRecetaPresentacion} />
+      </ModalBase>
+
+      <ModalBase visible={modalTamano} titulo={tamanoEditandoId ? 'Editar tamaño' : 'Nuevo tamaño'} onCerrar={() => setModalTamano(false)} alto="68%">
+        {tamanoDraft && <>
+          <Campo etiqueta="Nombre" value={tamanoDraft.nombre} onChangeText={(v) => setTamanoDraft({ ...tamanoDraft, nombre: v })} placeholder="Ej. Grande" />
+          <Campo etiqueta="Precio" value={tamanoDraft.precio} onChangeText={(v) => setTamanoDraft({ ...tamanoDraft, precio: v })} keyboardType="decimal-pad" />
+          <Toggle label="Activo" value={tamanoDraft.activo !== false} onChange={(v) => setTamanoDraft({ ...tamanoDraft, activo: v })} />
+          <Boton titulo="Guardar tamaño" onPress={guardarTamano} />
+        </>}
+      </ModalBase>
+
+      <ModalBase visible={modalReglasTamano} titulo="Límites del tamaño" onCerrar={() => setModalReglasTamano(false)}>
+        {reglasDraft.length === 0 ? <Text style={styles.infoCaja}>No hay secciones creadas todavía.</Text> : reglasDraft.map((r, idx) => <View key={r.seccionId} style={styles.reglaCard}>
+          <Text style={styles.subCardTitulo}>{r.nombre}</Text>
+          <Campo etiqueta="Opciones incluidas" value={r.incluidas} onChangeText={(v) => setReglasDraft((arr) => arr.map((x, i) => i === idx ? { ...x, incluidas: v } : x))} keyboardType="number-pad" />
+          <Toggle label="Permitir opciones extra" value={r.permiteExtras} onChange={(v) => setReglasDraft((arr) => arr.map((x, i) => i === idx ? { ...x, permiteExtras: v } : x))} />
+          {r.permiteExtras && <Campo etiqueta="Precio por cada extra" value={r.precioExtra} onChangeText={(v) => setReglasDraft((arr) => arr.map((x, i) => i === idx ? { ...x, precioExtra: v } : x))} keyboardType="decimal-pad" />}
+        </View>)}
+        <Boton titulo="Guardar límites" onPress={guardarReglasTamano} />
+      </ModalBase>
+
+      <ModalBase visible={modalSeccion} titulo={seccionEditandoId ? 'Editar sección' : 'Nueva sección'} onCerrar={() => setModalSeccion(false)} alto="80%">
+        {seccionDraft && <>
+          <Campo etiqueta="Nombre de la sección" value={seccionDraft.nombre} onChangeText={(v) => setSeccionDraft({ ...seccionDraft, nombre: v })} placeholder="Ej. Leche" />
+          <Text style={styles.etiqueta}>Tipo de selección</Text>
+          <View style={styles.chipsWrap}>{MODOS_SELECCION.map((m) => <Chip key={m} label={m} activo={seccionDraft.tipoSeleccion === m} onPress={() => setSeccionDraft({ ...seccionDraft, tipoSeleccion: m, max: m === 'Única' ? '1' : seccionDraft.max })} />)}</View>
+          <Toggle label="Obligatoria" value={seccionDraft.obligatoria === true} onChange={(v) => setSeccionDraft({ ...seccionDraft, obligatoria: v })} />
+          {seccionDraft.tipoSeleccion === 'Múltiple' && <>
+            <Campo etiqueta="Mínimo de selecciones" value={seccionDraft.min} onChangeText={(v) => setSeccionDraft({ ...seccionDraft, min: v })} keyboardType="number-pad" />
+            <Campo etiqueta="Máximo de selecciones" value={seccionDraft.max} onChangeText={(v) => setSeccionDraft({ ...seccionDraft, max: v })} keyboardType="number-pad" />
+          </>}
+          <Toggle label="Activa" value={seccionDraft.activa !== false} onChange={(v) => setSeccionDraft({ ...seccionDraft, activa: v })} />
+          <Boton titulo="Guardar sección" onPress={guardarSeccion} />
+        </>}
+      </ModalBase>
+
+      <ModalBase visible={modalOpcion} titulo={opcionEditandoId ? 'Editar opción' : 'Nueva opción'} onCerrar={() => setModalOpcion(false)}>
+        {opcionDraft && <>
+          <Campo etiqueta="Nombre" value={opcionDraft.nombre} onChangeText={(v) => setOpcionDraft({ ...opcionDraft, nombre: v })} placeholder="Nombre que verá quien cobra" />
+          <Campo etiqueta="Ajuste de precio" value={opcionDraft.ajustePrecio} onChangeText={(v) => setOpcionDraft({ ...opcionDraft, ajustePrecio: v })} keyboardType="numbers-and-punctuation" ayuda="Usa 0 si no tiene costo extra." />
+
+          <Text style={styles.etiqueta}>Efecto en inventario</Text>
+          <View style={styles.chipsWrap}>{ACCIONES_INVENTARIO.map((a) => <Chip key={a} label={a} activo={opcionDraft.accionInventario === a} onPress={() => setOpcionDraft({ ...opcionDraft, accionInventario: a })} />)}</View>
+
+          {opcionDraft.accionInventario !== 'Ninguno' && <>
+            <Text style={styles.etiqueta}>Insumo que se consume</Text>
+            <View style={styles.listaSeleccion}>{insumos.map((i) => <Pressable key={i.id} onPress={() => setOpcionDraft({ ...opcionDraft, insumoId: i.id })} style={[styles.opcionFila, opcionDraft.insumoId === i.id && styles.opcionFilaActiva]}><Text style={styles.opcionTitulo}>{i.nombre}</Text>{opcionDraft.insumoId === i.id && <Text style={styles.check}>✓</Text>}</Pressable>)}</View>
+            <Campo etiqueta="Cantidad consumida" value={opcionDraft.cantidad} onChangeText={(v) => setOpcionDraft({ ...opcionDraft, cantidad: v })} keyboardType="decimal-pad" />
+          </>}
+
+          {opcionDraft.accionInventario === 'Sustituir' && <>
+            <Text style={styles.etiqueta}>Sustituye este insumo de la receta base</Text>
+            <View style={styles.listaSeleccion}>{insumos.map((i) => <Pressable key={i.id} onPress={() => setOpcionDraft({ ...opcionDraft, reemplazaInsumoId: i.id })} style={[styles.opcionFila, opcionDraft.reemplazaInsumoId === i.id && styles.opcionFilaActiva]}><Text style={styles.opcionTitulo}>{i.nombre}</Text>{opcionDraft.reemplazaInsumoId === i.id && <Text style={styles.check}>✓</Text>}</Pressable>)}</View>
+          </>}
+
+          <Toggle label="Opción activa" value={opcionDraft.activa !== false} onChange={(v) => setOpcionDraft({ ...opcionDraft, activa: v })} />
+          <Boton titulo="Guardar opción" onPress={guardarOpcion} />
+          {opcionEditandoId && <Boton titulo="Eliminar opción" tipo="peligro" onPress={() => {
+            setConfigDraft((x) => ({ ...x, seccionesPersonalizacion: (x.seccionesPersonalizacion || []).map((s) => s.id === seccionOpcionId ? { ...s, opciones: (s.opciones || []).filter((o) => o.id !== opcionEditandoId) } : s) }));
+            setModalOpcion(false);
+          }} />}
+        </>}
+      </ModalBase>
+
+      <ModalBase visible={modalInsumo} titulo={insumoEditando ? 'Editar insumo' : 'Nuevo insumo'} onCerrar={() => setModalInsumo(false)}>
+        {insumoDraft && <>
+          <Campo etiqueta="Nombre" value={insumoDraft.nombre} onChangeText={(v) => setInsumoDraft({ ...insumoDraft, nombre: v })} />
+          <Campo etiqueta="Categoría" value={insumoDraft.categoria} onChangeText={(v) => setInsumoDraft({ ...insumoDraft, categoria: v })} />
+          <Campo etiqueta="Presentación de compra" value={insumoDraft.presentacionCompra} onChangeText={(v) => setInsumoDraft({ ...insumoDraft, presentacionCompra: v })} placeholder="Ej. botella 1 L" />
+          <Campo etiqueta="Contenido de la presentación" value={insumoDraft.contenidoPresentacion} onChangeText={(v) => setInsumoDraft({ ...insumoDraft, contenidoPresentacion: v })} keyboardType="decimal-pad" />
+          <Campo etiqueta="Unidad base" value={insumoDraft.unidadBase} onChangeText={(v) => setInsumoDraft({ ...insumoDraft, unidadBase: v })} placeholder="ml, g, unidad..." />
+          <Campo etiqueta="Stock mínimo" value={insumoDraft.stockMinimo} onChangeText={(v) => setInsumoDraft({ ...insumoDraft, stockMinimo: v })} keyboardType="decimal-pad" />
+          <Boton titulo="Guardar insumo" onPress={guardarInsumo} />
+        </>}
       </ModalBase>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  pantalla: {
-    flex: 1,
-    backgroundColor: '#F7F8F7',
-  },
-  header: {
-    paddingHorizontal: 18,
-    paddingTop: 14,
-    paddingBottom: 12,
-    backgroundColor: '#FFFFFF',
-    borderBottomWidth: 1,
-    borderBottomColor: '#E7E8E7',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  headerTexto: {
-    flex: 1,
-  },
-  titulo: {
-    fontSize: 24,
-    fontWeight: '800',
-    color: '#1D2D28',
-  },
-  subtitulo: {
-    marginTop: 3,
-    fontSize: 13,
-    color: '#69736F',
-  },
-  tabsPrincipales: {
-    flexDirection: 'row',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    backgroundColor: '#FFFFFF',
-    gap: 8,
-  },
-  contenido: {
-    padding: 16,
-    paddingBottom: 40,
-  },
-  accionesArriba: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    marginBottom: 12,
-  },
-  flex1: {
-    flex: 1,
-  },
-  inputBusqueda: {
-    minHeight: 44,
-    borderWidth: 1,
-    borderColor: '#D9DDDB',
-    borderRadius: 12,
-    backgroundColor: '#FFFFFF',
-    paddingHorizontal: 13,
-    color: '#1F2724',
-    fontSize: 15,
-  },
-  filtrosFila: {
-    gap: 8,
-    paddingBottom: 6,
-  },
-  chip: {
-    paddingHorizontal: 12,
-    paddingVertical: 9,
-    borderRadius: 20,
-    backgroundColor: '#EEF1EF',
-    borderWidth: 1,
-    borderColor: '#E0E4E2',
-  },
-  chipActivo: {
-    backgroundColor: '#2E5A4F',
-    borderColor: '#2E5A4F',
-  },
-  chipTexto: {
-    color: '#3D4945',
-    fontSize: 13,
-    fontWeight: '700',
-  },
-  chipTextoActivo: {
-    color: '#FFFFFF',
-  },
-  resumenTexto: {
-    marginTop: 8,
-    marginBottom: 10,
-    color: '#6C7571',
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  card: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: '#E4E7E5',
-    padding: 15,
-    marginBottom: 12,
-  },
-  cardFilaSuperior: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 12,
-  },
-  cardTitulo: {
-    color: '#1D2925',
-    fontSize: 18,
-    fontWeight: '800',
-  },
-  cardMeta: {
-    color: '#78817E',
-    marginTop: 3,
-    fontSize: 13,
-  },
-  precioCaja: {
-    alignItems: 'flex-end',
-  },
-  precioEtiqueta: {
-    color: '#8A928F',
-    fontSize: 11,
-    textTransform: 'uppercase',
-    fontWeight: '700',
-  },
-  precioTexto: {
-    marginTop: 2,
-    color: '#2E5A4F',
-    fontSize: 17,
-    fontWeight: '800',
-  },
-  stockCaja: {
-    alignItems: 'flex-end',
-    maxWidth: '45%',
-  },
-  stockTexto: {
-    marginTop: 2,
-    color: '#2E5A4F',
-    fontSize: 15,
-    fontWeight: '800',
-    textAlign: 'right',
-  },
-  estadoFila: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flexWrap: 'wrap',
-    gap: 8,
-    marginTop: 13,
-  },
-  estadoBadge: {
-    paddingHorizontal: 9,
-    paddingVertical: 6,
-    borderRadius: 10,
-  },
-  estadoCompleto: {
-    backgroundColor: '#DDEEE8',
-  },
-  estadoProceso: {
-    backgroundColor: '#FFF1D5',
-  },
-  estadoSin: {
-    backgroundColor: '#EFEFEF',
-  },
-  estadoTexto: {
-    color: '#34413D',
-    fontWeight: '800',
-    fontSize: 12,
-  },
-  ingredientesTexto: {
-    color: '#7A8380',
-    fontSize: 12,
-  },
-  metricasFila: {
-    flexDirection: 'row',
-    gap: 10,
-    marginTop: 13,
-  },
-  metrica: {
-    flex: 1,
-    backgroundColor: '#F6F8F7',
-    borderRadius: 12,
-    padding: 10,
-  },
-  metricaEtiqueta: {
-    color: '#89918E',
-    fontSize: 11,
-    fontWeight: '700',
-    textTransform: 'uppercase',
-  },
-  metricaValor: {
-    color: '#26342F',
-    fontSize: 14,
-    fontWeight: '800',
-    marginTop: 4,
-  },
-  botonesCard: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    marginTop: 14,
-  },
-  boton: {
-    minHeight: 42,
-    borderRadius: 11,
-    paddingHorizontal: 15,
-    paddingVertical: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#2E5A4F',
-  },
-  botonCompacto: {
-    minHeight: 38,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-  },
-  botonSecundario: {
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#CCD3D0',
-  },
-  botonSuave: {
-    backgroundColor: '#EEF3F1',
-  },
-  botonPeligro: {
-    backgroundColor: '#FFF2F0',
-    borderWidth: 1,
-    borderColor: '#F2C9C3',
-  },
-  botonDeshabilitado: {
-    opacity: 0.45,
-  },
-  botonTexto: {
-    color: '#FFFFFF',
-    fontWeight: '800',
-    fontSize: 13,
-  },
-  botonTextoOscuro: {
-    color: '#33413C',
-  },
-  botonTextoPeligro: {
-    color: '#A4483A',
-  },
-  presionado: {
-    opacity: 0.72,
-  },
-  vacio: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: '#E4E7E5',
-    padding: 24,
-    alignItems: 'center',
-  },
-  vacioTitulo: {
-    color: '#26322E',
-    fontSize: 16,
-    fontWeight: '800',
-  },
-  vacioTexto: {
-    marginTop: 5,
-    color: '#78817E',
-    textAlign: 'center',
-  },
-  detalleTexto: {
-    color: '#65706C',
-    marginTop: 7,
-    fontSize: 13,
-  },
-  avisoPendiente: {
-    backgroundColor: '#FFF3D8',
-    borderRadius: 10,
-    padding: 9,
-    marginTop: 11,
-  },
-  avisoPendienteTexto: {
-    color: '#745715',
-    fontWeight: '700',
-    fontSize: 12,
-  },
-  modalFondo: {
-    flex: 1,
-    justifyContent: 'flex-end',
-    backgroundColor: 'rgba(0,0,0,0.35)',
-  },
-  modalCaja: {
-    maxHeight: '92%',
-    backgroundColor: '#F8F9F8',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    overflow: 'hidden',
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 18,
-    paddingVertical: 15,
-    backgroundColor: '#FFFFFF',
-    borderBottomWidth: 1,
-    borderBottomColor: '#E4E7E5',
-  },
-  modalTitulo: {
-    flex: 1,
-    color: '#1D2A25',
-    fontSize: 19,
-    fontWeight: '800',
-  },
-  cerrar: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#EFF2F0',
-  },
-  cerrarTexto: {
-    color: '#3E4A46',
-    fontSize: 18,
-    fontWeight: '700',
-  },
-  modalContenido: {
-    padding: 18,
-    paddingBottom: 36,
-  },
-  campoGrupo: {
-    marginBottom: 13,
-  },
-  campoEtiqueta: {
-    color: '#44504C',
-    fontSize: 12,
-    fontWeight: '800',
-    marginBottom: 6,
-  },
-  input: {
-    minHeight: 46,
-    borderWidth: 1,
-    borderColor: '#D4DAD7',
-    borderRadius: 12,
-    backgroundColor: '#FFFFFF',
-    paddingHorizontal: 13,
-    fontSize: 15,
-    color: '#1F2724',
-  },
-  seccionTitulo: {
-    color: '#26332F',
-    fontSize: 15,
-    fontWeight: '800',
-    marginBottom: 10,
-  },
-  chipsWrap: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  separador: {
-    height: 1,
-    backgroundColor: '#E1E5E3',
-    marginVertical: 18,
-  },
-  ayudaTexto: {
-    color: '#737D79',
-    fontSize: 13,
-    lineHeight: 19,
-    marginBottom: 12,
-  },
-  ingredienteCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 7,
-    padding: 11,
-    borderRadius: 12,
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#E2E6E4',
-    marginBottom: 8,
-  },
-  ingredienteNombre: {
-    color: '#26322E',
-    fontSize: 14,
-    fontWeight: '800',
-  },
-  ingredienteCantidad: {
-    color: '#737C79',
-    fontSize: 12,
-    marginTop: 2,
-  },
-  listaInsumosReceta: {
-    marginTop: 10,
-    marginBottom: 14,
-    maxHeight: 230,
-  },
-  insumoOpcion: {
-    paddingHorizontal: 12,
-    paddingVertical: 11,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#DDE2DF',
-    backgroundColor: '#FFFFFF',
-    marginBottom: 7,
-  },
-  insumoOpcionActiva: {
-    backgroundColor: '#DCEBE6',
-    borderColor: '#2E5A4F',
-  },
-  insumoOpcionTexto: {
-    color: '#3D4945',
-    fontSize: 13,
-    fontWeight: '700',
-  },
-  insumoOpcionTextoActivo: {
-    color: '#23483F',
-  },
-  botonesModalFila: {
-    gap: 9,
-  },
+  pantalla: { flex: 1, backgroundColor: C.fondo },
+  header: { flexDirection: 'row', gap: 12, alignItems: 'center', paddingHorizontal: 18, paddingTop: 14, paddingBottom: 12, backgroundColor: C.verde },
+  titulo: { color: '#FFF', fontSize: 24, fontWeight: '800' },
+  subtitulo: { color: '#E7EFEA', marginTop: 3, fontSize: 12, lineHeight: 17 },
+  tabsTop: { flexDirection: 'row', gap: 8, padding: 12, backgroundColor: '#F2ECE2', borderBottomWidth: 1, borderBottomColor: C.linea },
+  contenido: { padding: 14, paddingBottom: 80 },
+  filaAcciones: { flexDirection: 'row', gap: 8, alignItems: 'center', marginBottom: 10 },
+  chipsFila: { gap: 7, paddingVertical: 4, paddingBottom: 12 },
+  chipsWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 7, marginBottom: 12 },
+  chip: { paddingHorizontal: 13, paddingVertical: 9, borderRadius: 14, borderWidth: 1, borderColor: C.linea, backgroundColor: '#FFF' },
+  chipActivo: { backgroundColor: C.verde, borderColor: C.verde },
+  chipDisabled: { opacity: 0.45 },
+  chipTexto: { fontSize: 13, fontWeight: '700', color: C.texto },
+  chipTextoActivo: { color: '#FFF' },
+  boton: { backgroundColor: C.verde, minHeight: 44, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 11, justifyContent: 'center', alignItems: 'center', marginVertical: 4 },
+  botonCompacto: { minHeight: 36, paddingHorizontal: 11, paddingVertical: 8 },
+  botonSecundario: { backgroundColor: '#FFF', borderWidth: 1, borderColor: '#D4C7BA' },
+  botonSuave: { backgroundColor: C.crema },
+  botonPeligro: { backgroundColor: '#F8E9E6', borderWidth: 1, borderColor: '#E9C7C0' },
+  botonDisabled: { opacity: 0.4 },
+  botonTexto: { color: '#FFF', fontSize: 13, fontWeight: '800' },
+  botonTextoOscuro: { color: C.texto },
+  botonTextoPeligro: { color: C.peligro },
+  campoGrupo: { marginBottom: 13 },
+  etiqueta: { fontSize: 13, fontWeight: '800', color: C.texto, marginBottom: 7 },
+  input: { minHeight: 46, borderRadius: 12, borderWidth: 1, borderColor: C.linea, backgroundColor: '#FFF', paddingHorizontal: 13, color: C.texto, fontSize: 15 },
+  inputMultiline: { minHeight: 105, paddingTop: 12 },
+  ayuda: { marginTop: 5, color: C.secundario, fontSize: 11, lineHeight: 15 },
+  card: { backgroundColor: '#FFF', borderRadius: 17, padding: 14, marginBottom: 11, borderWidth: 1, borderColor: C.linea },
+  cardTop: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  cardTitulo: { fontSize: 17, fontWeight: '800', color: C.texto },
+  cardMeta: { color: C.secundario, marginTop: 3, fontSize: 12 },
+  precio: { fontSize: 16, fontWeight: '900', color: C.verde },
+  iconoProducto: { width: 44, height: 44, borderRadius: 13, backgroundColor: C.crema, alignItems: 'center', justifyContent: 'center' },
+  iconoProductoTxt: { fontSize: 22 },
+  estadosFila: { flexDirection: 'row', flexWrap: 'wrap', gap: 7, marginTop: 12 },
+  estado: { paddingHorizontal: 9, paddingVertical: 5, borderRadius: 10, backgroundColor: '#ECE8E4' },
+  estadoOk: { backgroundColor: '#E2F0E6' },
+  estadoAviso: { backgroundColor: '#F6EDD8' },
+  estadoPeligro: { backgroundColor: '#F7E4E1' },
+  estadoTexto: { fontSize: 11, fontWeight: '800', color: C.texto },
+  preparacionResumen: { marginTop: 10, fontSize: 12, color: C.secundario, lineHeight: 17 },
+  botonesCard: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 10 },
+  vacio: { backgroundColor: '#FFF', borderRadius: 16, padding: 24, alignItems: 'center', borderWidth: 1, borderColor: C.linea },
+  vacioTitulo: { fontSize: 16, fontWeight: '800', color: C.texto },
+  vacioTexto: { color: C.secundario, marginTop: 5, lineHeight: 18 },
+  modalFondo: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.38)' },
+  modalCaja: { backgroundColor: C.fondo, borderTopLeftRadius: 24, borderTopRightRadius: 24, overflow: 'hidden' },
+  modalHeader: { flexDirection: 'row', alignItems: 'center', padding: 16, backgroundColor: '#FFF', borderBottomWidth: 1, borderBottomColor: C.linea },
+  modalTitulo: { flex: 1, fontSize: 18, fontWeight: '900', color: C.texto },
+  cerrarBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: C.crema, alignItems: 'center', justifyContent: 'center' },
+  cerrarTxt: { fontSize: 16, fontWeight: '900', color: C.texto },
+  modalContenido: { padding: 16, paddingBottom: 50 },
+  toggleFila: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: '#FFF', padding: 12, borderRadius: 12, borderWidth: 1, borderColor: C.linea, marginBottom: 9 },
+  toggleLabel: { fontSize: 14, fontWeight: '800', color: C.texto },
+  switchBase: { width: 46, height: 26, borderRadius: 13, backgroundColor: '#D7D0C8', padding: 3 },
+  switchOn: { backgroundColor: C.verde2 },
+  switchPunto: { width: 20, height: 20, borderRadius: 10, backgroundColor: '#FFF' },
+  switchPuntoOn: { alignSelf: 'flex-end' },
+  infoCaja: { backgroundColor: '#EEF3EF', color: C.verde, borderRadius: 12, padding: 12, lineHeight: 18, marginBottom: 14, fontSize: 12 },
+  listaSeleccion: { maxHeight: 250, borderWidth: 1, borderColor: C.linea, borderRadius: 12, overflow: 'hidden', backgroundColor: '#FFF', marginBottom: 12 },
+  opcionFila: { flexDirection: 'row', alignItems: 'center', padding: 11, borderBottomWidth: 1, borderBottomColor: '#EEE7DF' },
+  opcionFilaActiva: { backgroundColor: '#EAF1EC' },
+  opcionTitulo: { fontSize: 13, fontWeight: '800', color: C.texto },
+  opcionMeta: { color: C.secundario, fontSize: 11, marginTop: 2 },
+  check: { fontSize: 18, color: C.verde, fontWeight: '900' },
+  recetaFila: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#FFF', borderRadius: 12, padding: 11, marginBottom: 7, borderWidth: 1, borderColor: C.linea },
+  recetaNombre: { fontSize: 13, fontWeight: '800', color: C.texto },
+  recetaCantidad: { fontSize: 11, color: C.secundario, marginTop: 3 },
+  miniPeligro: { paddingHorizontal: 9, paddingVertical: 7, borderRadius: 9, backgroundColor: '#F8E9E6' },
+  miniPeligroTxt: { fontSize: 11, color: C.peligro, fontWeight: '800' },
+  encabezadoSeccion: { marginTop: 14, marginBottom: 10 },
+  seccionTitulo: { fontSize: 16, fontWeight: '900', color: C.texto },
+  seccionTexto: { color: C.secundario, fontSize: 12, marginTop: 3, lineHeight: 17 },
+  chipGestion: { flexDirection: 'row', alignItems: 'center', backgroundColor: C.crema, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 9 },
+  chipGestionTxt: { fontWeight: '800', color: C.texto },
+  chipGestionX: { fontWeight: '900', color: C.peligro },
+  subCard: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#FFF', borderRadius: 13, borderWidth: 1, borderColor: C.linea, padding: 11, marginBottom: 8 },
+  subCardCol: { backgroundColor: '#FFF', borderRadius: 13, borderWidth: 1, borderColor: C.linea, padding: 11, marginBottom: 9 },
+  subCardTop: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  subCardTitulo: { fontSize: 14, fontWeight: '900', color: C.texto },
+  subCardMeta: { color: C.secundario, fontSize: 11, marginTop: 2 },
+  subCardBotones: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'flex-end', gap: 4 },
+  opcionConfig: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 9, borderTopWidth: 1, borderTopColor: '#EEE7DF' },
+  editarMini: { color: C.verde, fontWeight: '800', fontSize: 11 },
+  reglaCard: { backgroundColor: '#FFF', borderRadius: 13, borderWidth: 1, borderColor: C.linea, padding: 12, marginBottom: 10 },
 });
