@@ -96,6 +96,22 @@ const normalizarProducto = (producto = {}) => ({
   nombre: String(producto.nombre || '').trim(),
   categoria: producto.categoria || 'General',
   precio: numero(producto.precio),
+
+  // V2: estructura flexible. Los productos existentes siguen funcionando
+  // porque, si no tienen estos campos, se completan con valores seguros.
+  tipoProducto: producto.tipoProducto || 'Fijo',
+  descripcionPreparacion: String(producto.descripcionPreparacion || '').trim(),
+  imagenUri: producto.imagenUri || null,
+  activo: producto.activo !== false,
+  permiteNotas: producto.permiteNotas !== false,
+  permiteModificarIngredientes: producto.permiteModificarIngredientes !== false,
+  preparaciones: Array.isArray(producto.preparaciones) ? producto.preparaciones : [],
+  presentaciones: Array.isArray(producto.presentaciones) ? producto.presentaciones : [],
+  tamanos: Array.isArray(producto.tamanos) ? producto.tamanos : [],
+  seccionesPersonalizacion: Array.isArray(producto.seccionesPersonalizacion)
+    ? producto.seccionesPersonalizacion
+    : [],
+
   receta: Array.isArray(producto.receta)
     ? producto.receta.map((item) => ({
         ...item,
@@ -1313,6 +1329,16 @@ export function DatosNegocioProvider({ children }) {
     precio = 0,
     receta = [],
     estadoReceta = null,
+    tipoProducto = 'Fijo',
+    descripcionPreparacion = '',
+    imagenUri = null,
+    activo = true,
+    permiteNotas = true,
+    permiteModificarIngredientes = true,
+    preparaciones = [],
+    presentaciones = [],
+    tamanos = [],
+    seccionesPersonalizacion = [],
   }) => {
     const limpio = String(nombre || '').trim();
     if (!limpio) return { ok: false, mensaje: 'Escribe el nombre del producto.' };
@@ -1324,6 +1350,16 @@ export function DatosNegocioProvider({ children }) {
       precio,
       receta,
       estadoReceta: estadoReceta || (receta.length ? 'En proceso' : 'Sin receta'),
+      tipoProducto,
+      descripcionPreparacion,
+      imagenUri,
+      activo,
+      permiteNotas,
+      permiteModificarIngredientes,
+      preparaciones,
+      presentaciones,
+      tamanos,
+      seccionesPersonalizacion,
     });
 
     setProductos((lista) => [producto, ...lista]);
@@ -1340,12 +1376,28 @@ export function DatosNegocioProvider({ children }) {
     setProductos((lista) =>
       lista.map((item) =>
         item.id === productoId
-          ? {
+          ? normalizarProducto({
               ...item,
               nombre,
               categoria: cambios.categoria ?? item.categoria,
               precio: cambios.precio !== undefined ? numero(cambios.precio) : item.precio,
-            }
+              tipoProducto: cambios.tipoProducto ?? item.tipoProducto,
+              descripcionPreparacion:
+                cambios.descripcionPreparacion ?? item.descripcionPreparacion,
+              imagenUri: cambios.imagenUri !== undefined ? cambios.imagenUri : item.imagenUri,
+              activo: cambios.activo !== undefined ? cambios.activo : item.activo,
+              permiteNotas:
+                cambios.permiteNotas !== undefined ? cambios.permiteNotas : item.permiteNotas,
+              permiteModificarIngredientes:
+                cambios.permiteModificarIngredientes !== undefined
+                  ? cambios.permiteModificarIngredientes
+                  : item.permiteModificarIngredientes,
+              preparaciones: cambios.preparaciones ?? item.preparaciones,
+              presentaciones: cambios.presentaciones ?? item.presentaciones,
+              tamanos: cambios.tamanos ?? item.tamanos,
+              seccionesPersonalizacion:
+                cambios.seccionesPersonalizacion ?? item.seccionesPersonalizacion,
+            })
           : item
       )
     );
@@ -1436,11 +1488,13 @@ export function DatosNegocioProvider({ children }) {
       metodoPago,
       nota: String(nota || '').trim(),
       costoTotal: null,
+      costoConocido: 0,
       utilidadBruta: null,
+      utilidadProvisional: cantidad,
       margen: null,
       pendienteClasificar: true,
       pendienteCostear: true,
-      estadoClasificacion: 'Pendiente',
+      estadoClasificacion: 'Pendiente de clasificar y costear',
       detalleCosto: [],
       clasificacionProductos: [],
       fechaKey: fechaKeyActual(),
@@ -1475,7 +1529,7 @@ export function DatosNegocioProvider({ children }) {
     const monto = numero(producto.precio) * unidades;
     const venta = {
       id: crearId('VENPEN'),
-      tipoVenta: 'Producto pendiente',
+      tipoVenta: 'Producto con costo pendiente',
       productoId,
       producto: producto.nombre,
       concepto: producto.nombre,
@@ -1485,11 +1539,13 @@ export function DatosNegocioProvider({ children }) {
       nota: String(nota || '').trim(),
       estadoRecetaAlVender: normalizarEstadoReceta(producto),
       costoTotal: null,
+      costoConocido: 0,
       utilidadBruta: null,
+      utilidadProvisional: monto,
       margen: null,
-      pendienteClasificar: true,
+      pendienteClasificar: false,
       pendienteCostear: true,
-      estadoClasificacion: 'Pendiente',
+      estadoClasificacion: 'Clasificada - costo pendiente',
       detalleCosto: [],
       clasificacionProductos: [
         {
@@ -1498,6 +1554,7 @@ export function DatosNegocioProvider({ children }) {
           cantidad: unidades,
           precioCatalogo: numero(producto.precio),
           costo: null,
+          costoPendiente: true,
         },
       ],
       fechaKey: fechaKeyActual(),
@@ -1510,10 +1567,13 @@ export function DatosNegocioProvider({ children }) {
       tipo: 'Entrada',
       monto,
       concepto: producto.nombre,
-      categoria: 'Venta producto pendiente',
+      categoria: 'Venta',
       metodoPago,
       referenciaId: venta.id,
-      origen: 'Venta producto pendiente',
+      origen: 'Venta producto con costo pendiente',
+      fechaKey: venta.fechaKey,
+      fecha: venta.fecha,
+      hora: venta.hora,
     });
 
     return { ok: true, venta };
@@ -1526,15 +1586,10 @@ export function DatosNegocioProvider({ children }) {
     if (!producto) return { ok: false, mensaje: 'No se encontró el producto.' };
     if (!unidades || unidades <= 0) return { ok: false, mensaje: 'La cantidad debe ser mayor a 0.' };
 
-    if (normalizarEstadoReceta(producto) !== 'Completa') {
-      return {
-        ok: false,
-        requiereVentaPendiente: true,
-        mensaje: 'La receta todavía no está marcada como completa. Registra la venta como pendiente de costeo.',
-      };
-    }
-    if (!producto.receta || producto.receta.length === 0) {
-      return { ok: false, mensaje: 'Este producto no tiene receta.' };
+    // La falta de receta nunca bloquea la venta. Se registra el ingreso y
+    // el costo queda pendiente hasta que la receta pueda costearse.
+    if (normalizarEstadoReceta(producto) !== 'Completa' || !producto.receta?.length) {
+      return registrarVentaProductoPendiente({ productoId, cantidad: unidades, metodoPago, nota });
     }
 
     let listaTrabajo = insumos.map((i) => ({ ...i, lotes: (i.lotes || []).map((l) => ({ ...l })) }));
@@ -1544,14 +1599,17 @@ export function DatosNegocioProvider({ children }) {
     for (const ingrediente of producto.receta) {
       const requerido = numero(ingrediente.cantidad) * unidades;
       const plan = planificarFIFO(listaTrabajo, ingrediente.insumoId, requerido);
+
+      // Si físicamente no hay inventario suficiente, sí bloqueamos la venta
+      // de un producto cuya receta ya conocemos.
       if (!plan.ok) return plan;
+
+      // Si existe el inventario pero su costo todavía no está resuelto,
+      // permitimos vender y dejamos el costo pendiente.
       if (plan.costoPendiente) {
-        return {
-          ok: false,
-          requiereVentaPendiente: true,
-          mensaje: 'Hay inventario suficiente, pero parte todavía no tiene costo. Registra la venta como pendiente de costeo.',
-        };
+        return registrarVentaProductoPendiente({ productoId, cantidad: unidades, metodoPago, nota });
       }
+
       costoTotal += numero(plan.costo);
       detalleCosto.push(...plan.detalle);
       listaTrabajo = aplicarConsumoFIFOEnLista(listaTrabajo, plan.detalle);
@@ -1572,7 +1630,9 @@ export function DatosNegocioProvider({ children }) {
       metodoPago,
       nota: String(nota || '').trim(),
       costoTotal: redondear(costoTotal),
+      costoConocido: redondear(costoTotal),
       utilidadBruta: redondear(utilidadBruta),
+      utilidadProvisional: redondear(utilidadBruta),
       margen,
       pendienteClasificar: false,
       pendienteCostear: false,
@@ -1585,6 +1645,7 @@ export function DatosNegocioProvider({ children }) {
           cantidad: unidades,
           precioCatalogo: numero(producto.precio),
           costo: redondear(costoTotal),
+          costoPendiente: false,
         },
       ],
       fechaKey: fechaKeyActual(),
@@ -1641,46 +1702,85 @@ export function DatosNegocioProvider({ children }) {
     }
 
     let listaTrabajo = insumos.map((i) => ({ ...i, lotes: (i.lotes || []).map((l) => ({ ...l })) }));
-    let costoTotal = 0;
+    let costoConocido = 0;
     const detalleCosto = [];
     const clasificacionProductos = [];
+    let hayPendientes = false;
 
     for (const partida of listaPartidas) {
       const producto = productos.find((p) => p.id === partida.productoId);
       const unidades = numero(partida.cantidad);
       if (!producto) return { ok: false, mensaje: 'Uno de los productos ya no existe.' };
+
+      // Clasificar y costear son cosas diferentes. Si todavía no conocemos
+      // la receta, guardamos la clasificación sin inventar un costo.
       if (normalizarEstadoReceta(producto) !== 'Completa' || !producto.receta?.length) {
-        return { ok: false, mensaje: `${producto.nombre} todavía no tiene receta completa.` };
+        hayPendientes = true;
+        clasificacionProductos.push({
+          productoId: producto.id,
+          producto: producto.nombre,
+          cantidad: unidades,
+          precioCatalogo: numero(producto.precio),
+          costo: null,
+          costoPendiente: true,
+        });
+        continue;
       }
 
+      let trabajoProducto = listaTrabajo.map((i) => ({
+        ...i,
+        lotes: (i.lotes || []).map((l) => ({ ...l })),
+      }));
       let costoProducto = 0;
+      const detalleProducto = [];
+      let productoCosteable = true;
+
       for (const ingrediente of producto.receta) {
         const requerido = numero(ingrediente.cantidad) * unidades;
-        const plan = planificarFIFO(listaTrabajo, ingrediente.insumoId, requerido);
-        if (!plan.ok) return plan;
-        if (plan.costoPendiente) {
-          return {
-            ok: false,
-            mensaje: `No se puede costear ${producto.nombre} porque parte del inventario aún no tiene costo.`,
-          };
+        const plan = planificarFIFO(trabajoProducto, ingrediente.insumoId, requerido);
+
+        if (!plan.ok || plan.costoPendiente) {
+          productoCosteable = false;
+          break;
         }
+
         costoProducto += numero(plan.costo);
-        costoTotal += numero(plan.costo);
-        detalleCosto.push(...plan.detalle);
-        listaTrabajo = aplicarConsumoFIFOEnLista(listaTrabajo, plan.detalle);
+        detalleProducto.push(...plan.detalle);
+        trabajoProducto = aplicarConsumoFIFOEnLista(trabajoProducto, plan.detalle);
       }
 
+      if (!productoCosteable) {
+        hayPendientes = true;
+        clasificacionProductos.push({
+          productoId: producto.id,
+          producto: producto.nombre,
+          cantidad: unidades,
+          precioCatalogo: numero(producto.precio),
+          costo: null,
+          costoPendiente: true,
+        });
+        continue;
+      }
+
+      listaTrabajo = trabajoProducto;
+      costoConocido += costoProducto;
+      detalleCosto.push(...detalleProducto);
       clasificacionProductos.push({
         productoId: producto.id,
         producto: producto.nombre,
         cantidad: unidades,
         precioCatalogo: numero(producto.precio),
         costo: redondear(costoProducto),
+        costoPendiente: false,
       });
     }
 
-    const utilidadBruta = numero(venta.monto) - costoTotal;
-    const margen = numero(venta.monto) > 0 ? (utilidadBruta / numero(venta.monto)) * 100 : 0;
+    const utilidadProvisional = numero(venta.monto) - costoConocido;
+    const totalmenteCosteada = !hayPendientes;
+    const utilidadBruta = totalmenteCosteada ? utilidadProvisional : null;
+    const margen = totalmenteCosteada && numero(venta.monto) > 0
+      ? (utilidadProvisional / numero(venta.monto)) * 100
+      : null;
 
     setInsumos(listaTrabajo);
     setVentas((lista) =>
@@ -1688,12 +1788,16 @@ export function DatosNegocioProvider({ children }) {
         item.id === ventaId
           ? {
               ...item,
-              costoTotal: redondear(costoTotal),
-              utilidadBruta: redondear(utilidadBruta),
+              costoTotal: totalmenteCosteada ? redondear(costoConocido) : null,
+              costoConocido: redondear(costoConocido),
+              utilidadBruta: utilidadBruta === null ? null : redondear(utilidadBruta),
+              utilidadProvisional: redondear(utilidadProvisional),
               margen,
               pendienteClasificar: false,
-              pendienteCostear: false,
-              estadoClasificacion: 'Clasificada',
+              pendienteCostear: hayPendientes,
+              estadoClasificacion: hayPendientes
+                ? 'Clasificada - costo pendiente'
+                : 'Clasificada',
               detalleCosto,
               clasificacionProductos,
             }
@@ -1717,21 +1821,177 @@ export function DatosNegocioProvider({ children }) {
       hora: venta.hora,
       origen: 'Clasificación venta pendiente',
     }));
-    setMovimientos((lista) => [...movs, ...lista]);
+    if (movs.length) setMovimientos((lista) => [...movs, ...lista]);
 
-    return { ok: true, costoTotal, utilidadBruta, clasificacionProductos };
+    return {
+      ok: true,
+      costoTotal: totalmenteCosteada ? redondear(costoConocido) : null,
+      costoConocido: redondear(costoConocido),
+      utilidadBruta: utilidadBruta === null ? null : redondear(utilidadBruta),
+      utilidadProvisional: redondear(utilidadProvisional),
+      pendienteCostear: hayPendientes,
+      clasificacionProductos,
+    };
   };
 
   const costearVentaProductoPendiente = (ventaId) => {
     const venta = ventas.find((item) => item.id === ventaId);
     if (!venta) return { ok: false, mensaje: 'No se encontró la venta.' };
-    if (!venta.pendienteClasificar) return { ok: false, mensaje: 'La venta ya está clasificada.' };
-    if (!venta.productoId) return { ok: false, mensaje: 'Esta venta necesita clasificación manual.' };
+    if (venta.pendienteClasificar) {
+      return { ok: false, mensaje: 'Primero clasifica esta venta.' };
+    }
+    if (!venta.pendienteCostear) {
+      return { ok: false, mensaje: 'Esta venta ya está costeada.' };
+    }
 
-    return clasificarVentaLibre({
+    const partidasActuales = Array.isArray(venta.clasificacionProductos)
+      ? venta.clasificacionProductos
+      : [];
+
+    if (!partidasActuales.length && venta.productoId) {
+      partidasActuales.push({
+        productoId: venta.productoId,
+        producto: venta.producto,
+        cantidad: venta.cantidad || 1,
+        precioCatalogo: 0,
+        costo: null,
+        costoPendiente: true,
+      });
+    }
+
+    if (!partidasActuales.length) {
+      return { ok: false, mensaje: 'Esta venta no tiene productos clasificados para costear.' };
+    }
+
+    let listaTrabajo = insumos.map((i) => ({ ...i, lotes: (i.lotes || []).map((l) => ({ ...l })) }));
+    const nuevasPartidas = [];
+    const nuevoDetalle = [];
+    let costoConocido = 0;
+    let pendientes = 0;
+    let costeadosAhora = 0;
+
+    for (const partida of partidasActuales) {
+      // Nunca volvemos a consumir una partida que ya fue costeada.
+      if (partida.costo !== null && partida.costo !== undefined) {
+        const costoPrevio = numero(partida.costo);
+        costoConocido += costoPrevio;
+        nuevasPartidas.push({ ...partida, costoPendiente: false });
+        continue;
+      }
+
+      const producto = productos.find((p) => p.id === partida.productoId);
+      const unidades = numero(partida.cantidad);
+
+      if (!producto || normalizarEstadoReceta(producto) !== 'Completa' || !producto.receta?.length) {
+        pendientes += 1;
+        nuevasPartidas.push({ ...partida, costo: null, costoPendiente: true });
+        continue;
+      }
+
+      let trabajoProducto = listaTrabajo.map((i) => ({
+        ...i,
+        lotes: (i.lotes || []).map((l) => ({ ...l })),
+      }));
+      let costoProducto = 0;
+      const detalleProducto = [];
+      let productoCosteable = true;
+
+      for (const ingrediente of producto.receta) {
+        const requerido = numero(ingrediente.cantidad) * unidades;
+        const plan = planificarFIFO(trabajoProducto, ingrediente.insumoId, requerido);
+
+        if (!plan.ok || plan.costoPendiente) {
+          productoCosteable = false;
+          break;
+        }
+
+        costoProducto += numero(plan.costo);
+        detalleProducto.push(...plan.detalle);
+        trabajoProducto = aplicarConsumoFIFOEnLista(trabajoProducto, plan.detalle);
+      }
+
+      if (!productoCosteable) {
+        pendientes += 1;
+        nuevasPartidas.push({ ...partida, costo: null, costoPendiente: true });
+        continue;
+      }
+
+      listaTrabajo = trabajoProducto;
+      costoConocido += costoProducto;
+      costeadosAhora += 1;
+      nuevoDetalle.push(...detalleProducto);
+      nuevasPartidas.push({
+        ...partida,
+        producto: producto.nombre,
+        costo: redondear(costoProducto),
+        costoPendiente: false,
+      });
+    }
+
+    const detalleAcumulado = [...(venta.detalleCosto || []), ...nuevoDetalle];
+    const totalmenteCosteada = pendientes === 0;
+    const utilidadProvisional = numero(venta.monto) - costoConocido;
+    const utilidadBruta = totalmenteCosteada ? utilidadProvisional : null;
+    const margen = totalmenteCosteada && numero(venta.monto) > 0
+      ? (utilidadProvisional / numero(venta.monto)) * 100
+      : null;
+
+    setInsumos(listaTrabajo);
+    setVentas((lista) =>
+      lista.map((item) =>
+        item.id === ventaId
+          ? {
+              ...item,
+              costoTotal: totalmenteCosteada ? redondear(costoConocido) : null,
+              costoConocido: redondear(costoConocido),
+              utilidadBruta: utilidadBruta === null ? null : redondear(utilidadBruta),
+              utilidadProvisional: redondear(utilidadProvisional),
+              margen,
+              pendienteCostear: !totalmenteCosteada,
+              estadoClasificacion: totalmenteCosteada
+                ? 'Clasificada'
+                : 'Clasificada - costo pendiente',
+              detalleCosto: detalleAcumulado,
+              clasificacionProductos: nuevasPartidas,
+            }
+          : item
+      )
+    );
+
+    const movs = nuevoDetalle.map((detalle) => ({
+      id: crearId('MOV'),
+      tipo: 'Venta',
+      insumoId: detalle.insumoId,
+      insumoNombre: detalle.insumoNombre,
+      cantidad: -numero(detalle.cantidad),
+      unidadBase: insumos.find((i) => i.id === detalle.insumoId)?.unidadBase || '',
+      costo: detalle.costo,
+      loteId: detalle.loteId,
       ventaId,
-      partidas: [{ productoId: venta.productoId, cantidad: venta.cantidad || 1 }],
-    });
+      referenciaId: ventaId,
+      fechaKey: venta.fechaKey,
+      fecha: venta.fecha,
+      hora: venta.hora,
+      origen: 'Costeo posterior de venta',
+    }));
+    if (movs.length) setMovimientos((lista) => [...movs, ...lista]);
+
+    if (costeadosAhora === 0 && !totalmenteCosteada) {
+      return {
+        ok: false,
+        mensaje: 'Todavía hay productos sin receta completa, sin inventario suficiente o con costo pendiente.',
+      };
+    }
+
+    return {
+      ok: true,
+      costoTotal: totalmenteCosteada ? redondear(costoConocido) : null,
+      costoConocido: redondear(costoConocido),
+      utilidadBruta: utilidadBruta === null ? null : redondear(utilidadBruta),
+      utilidadProvisional: redondear(utilidadProvisional),
+      pendienteCostear: !totalmenteCosteada,
+      costeadosAhora,
+    };
   };
 
   const cancelarVenta = (ventaId) => {

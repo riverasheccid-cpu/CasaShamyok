@@ -907,19 +907,19 @@ function CasaShamyApp() {
                 </View>
 
                 <View style={styles.botonesCard}>
-                  {pendiente && venta.productoId ? (
-                    <Boton
-                      titulo="Costear ahora"
-                      compacto
-                      onPress={() => intentarCostearPendiente(venta)}
-                    />
-                  ) : null}
-
-                  {pendiente && !venta.productoId ? (
+                  {venta.pendienteClasificar ? (
                     <Boton
                       titulo="Clasificar"
                       compacto
                       onPress={() => abrirClasificarVenta(venta)}
+                    />
+                  ) : null}
+
+                  {!venta.pendienteClasificar && venta.pendienteCostear ? (
+                    <Boton
+                      titulo="Costear ahora"
+                      compacto
+                      onPress={() => intentarCostearPendiente(venta)}
                     />
                   ) : null}
 
