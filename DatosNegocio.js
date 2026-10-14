@@ -1689,6 +1689,366 @@ export function DatosNegocioProvider({ children }) {
     return { ok: true, venta, utilidadBruta: venta.utilidadBruta };
   };
 
+
+  // =====================================================
+  // VENTAS V2 / CARRITO
+  // =====================================================
+
+  const obtenerPresentacionPartida = (producto, partida = {}) =>
+    (producto?.presentaciones || []).find((p) => p.id === partida.presentacionId) || null;
+
+  const obtenerTamanoPartida = (producto, partida = {}) =>
+    (producto?.tamanos || []).find((t) => t.id === partida.tamanoId) || null;
+
+  const obtenerSeccionProducto = (producto, seccionId) =>
+    (producto?.seccionesPersonalizacion || []).find((s) => s.id === seccionId) || null;
+
+  const obtenerOpcionProducto = (producto, seccionId, opcionId) => {
+    const seccion = obtenerSeccionProducto(producto, seccionId);
+    return (seccion?.opciones || []).find((o) => o.id === opcionId) || null;
+  };
+
+  const normalizarRecetaVenta = (receta = []) => {
+    const mapa = new Map();
+    for (const item of Array.isArray(receta) ? receta : []) {
+      if (!item?.insumoId) continue;
+      const cantidad = numero(item.cantidad);
+      if (cantidad <= 0) continue;
+      const anterior = mapa.get(item.insumoId);
+      mapa.set(item.insumoId, {
+        ...item,
+        insumoId: item.insumoId,
+        insumoNombre:
+          item.insumoNombre || insumos.find((i) => i.id === item.insumoId)?.nombre || '',
+        unidadBase:
+          item.unidadBase || insumos.find((i) => i.id === item.insumoId)?.unidadBase || '',
+        cantidad: numero(anterior?.cantidad) + cantidad,
+      });
+    }
+    return [...mapa.values()];
+  };
+
+  const resolverRecetaPartidaV2 = (producto, partida = {}) => {
+    if (!producto) return { receta: [], completa: false, estado: 'Sin receta' };
+
+    const presentacion = obtenerPresentacionPartida(producto, partida);
+    let recetaBase = [];
+    let estado = normalizarEstadoReceta(producto);
+
+    if (presentacion && Array.isArray(presentacion.receta) && presentacion.receta.length > 0) {
+      recetaBase = presentacion.receta.map((x) => ({ ...x }));
+      estado = presentacion.estadoReceta || 'En proceso';
+    } else {
+      recetaBase = Array.isArray(producto.receta) ? producto.receta.map((x) => ({ ...x })) : [];
+    }
+
+    let receta = normalizarRecetaVenta(recetaBase);
+
+    const quitar = new Set(Array.isArray(partida.quitarInsumoIds) ? partida.quitarInsumoIds : []);
+    receta = receta.filter((r) => !quitar.has(r.insumoId));
+
+    const selecciones = Array.isArray(partida.selecciones) ? partida.selecciones : [];
+    for (const grupo of selecciones) {
+      const ids = Array.isArray(grupo.opcionIds)
+        ? grupo.opcionIds
+        : Array.isArray(grupo.opciones)
+        ? grupo.opciones.map((o) => (typeof o === 'string' ? o : o?.id)).filter(Boolean)
+        : [];
+
+      for (const opcionId of ids) {
+        const opcion = obtenerOpcionProducto(producto, grupo.seccionId, opcionId);
+        if (!opcion || opcion.activa === false || opcion.accionInventario === 'Ninguno') continue;
+
+        if (opcion.accionInventario === 'Sustituir' && opcion.reemplazaInsumoId) {
+          receta = receta.filter((r) => r.insumoId !== opcion.reemplazaInsumoId);
+        }
+
+        if (opcion.insumoId && numero(opcion.cantidad) > 0) {
+          receta.push({
+            id: crearId('RECV2'),
+            insumoId: opcion.insumoId,
+            insumoNombre:
+              opcion.insumoNombre || insumos.find((i) => i.id === opcion.insumoId)?.nombre || '',
+            cantidad: numero(opcion.cantidad),
+            unidadBase: insumos.find((i) => i.id === opcion.insumoId)?.unidadBase || '',
+          });
+        }
+      }
+    }
+
+    receta = normalizarRecetaVenta(receta);
+    const completa = estado === 'Completa' && receta.length > 0;
+    return { receta, completa, estado, presentacion };
+  };
+
+  const precioPartidaV2 = (producto, partida = {}) => {
+    if (!producto) return 0;
+    const presentacion = obtenerPresentacionPartida(producto, partida);
+    const tamano = obtenerTamanoPartida(producto, partida);
+
+    let precio = numero(producto.precio);
+    if (presentacion) precio = numero(presentacion.precio);
+    if (tamano) precio = numero(tamano.precio);
+
+    const selecciones = Array.isArray(partida.selecciones) ? partida.selecciones : [];
+    for (const grupo of selecciones) {
+      const ids = Array.isArray(grupo.opcionIds)
+        ? grupo.opcionIds
+        : Array.isArray(grupo.opciones)
+        ? grupo.opciones.map((o) => (typeof o === 'string' ? o : o?.id)).filter(Boolean)
+        : [];
+      for (const opcionId of ids) {
+        const opcion = obtenerOpcionProducto(producto, grupo.seccionId, opcionId);
+        if (opcion) precio += numero(opcion.ajustePrecio);
+      }
+
+      if (tamano) {
+        const regla = (tamano.reglasSecciones || []).find((r) => r.seccionId === grupo.seccionId);
+        if (regla?.permiteExtras) {
+          const extras = Math.max(0, ids.length - numero(regla.incluidas));
+          precio += extras * numero(regla.precioExtra);
+        }
+      }
+    }
+
+    return Math.max(0, redondear(precio));
+  };
+
+  const validarPartidaConfiguradaV2 = (producto, partida = {}) => {
+    if (!producto) return { ok: false, mensaje: 'Uno de los productos ya no existe.' };
+    if (producto.activo === false) {
+      return { ok: false, mensaje: `${producto.nombre} está inactivo.` };
+    }
+
+    if (producto.tipoProducto === 'Bebida configurable') {
+      const preparaciones = (producto.preparaciones || []).filter((p) => p.activo !== false);
+      if (preparaciones.length && !partida.preparacionId) {
+        return { ok: false, mensaje: `Selecciona la preparación de ${producto.nombre}.` };
+      }
+      const presentaciones = (producto.presentaciones || []).filter((p) => p.activa !== false);
+      if (presentaciones.length && !partida.presentacionId) {
+        return { ok: false, mensaje: `Selecciona la presentación de ${producto.nombre}.` };
+      }
+    }
+
+    if (producto.tipoProducto === 'Arma el tuyo') {
+      const tamanos = (producto.tamanos || []).filter((t) => t.activo !== false);
+      if (tamanos.length && !partida.tamanoId) {
+        return { ok: false, mensaje: `Selecciona el tamaño de ${producto.nombre}.` };
+      }
+    }
+
+    const tamano = obtenerTamanoPartida(producto, partida);
+    const selecciones = Array.isArray(partida.selecciones) ? partida.selecciones : [];
+
+    for (const seccion of (producto.seccionesPersonalizacion || []).filter((s) => s.activa !== false)) {
+      const grupo = selecciones.find((g) => g.seccionId === seccion.id);
+      const ids = Array.isArray(grupo?.opcionIds)
+        ? grupo.opcionIds
+        : Array.isArray(grupo?.opciones)
+        ? grupo.opciones.map((o) => (typeof o === 'string' ? o : o?.id)).filter(Boolean)
+        : [];
+
+      const regla = tamano
+        ? (tamano.reglasSecciones || []).find((r) => r.seccionId === seccion.id)
+        : null;
+
+      const minimo = seccion.obligatoria ? Math.max(1, numero(seccion.min)) : numero(seccion.min);
+      if (ids.length < minimo) {
+        return { ok: false, mensaje: `Falta seleccionar ${seccion.nombre} en ${producto.nombre}.` };
+      }
+
+      if (seccion.tipoSeleccion === 'Única' && ids.length > 1) {
+        return { ok: false, mensaje: `Solo puedes elegir una opción en ${seccion.nombre}.` };
+      }
+
+      if (seccion.tipoSeleccion === 'Múltiple') {
+        const maxSeccion = Math.max(1, numero(seccion.max));
+        let maxPermitido = maxSeccion;
+        if (regla && !regla.permiteExtras) {
+          maxPermitido = Math.min(maxSeccion, numero(regla.incluidas));
+        }
+        if (ids.length > maxPermitido) {
+          return { ok: false, mensaje: `Hay demasiadas selecciones en ${seccion.nombre}.` };
+        }
+      }
+    }
+
+    return { ok: true };
+  };
+
+  const registrarVentaCarrito = ({ partidas, metodoPago = 'Efectivo', nota = '' }) => {
+    const listaPartidas = (Array.isArray(partidas) ? partidas : []).filter(
+      (p) => p?.productoId && numero(p.cantidad || 1) > 0
+    );
+    if (!listaPartidas.length) {
+      return { ok: false, mensaje: 'El carrito está vacío.' };
+    }
+
+    let listaTrabajo = insumos.map((i) => ({
+      ...i,
+      lotes: (i.lotes || []).map((l) => ({ ...l })),
+    }));
+
+    const ticketId = crearId('TICKET');
+    const detalleCosto = [];
+    const clasificacionProductos = [];
+    const partidasGuardadas = [];
+    let totalVenta = 0;
+    let costoConocido = 0;
+    let hayCostoPendiente = false;
+
+    for (const partidaEntrada of listaPartidas) {
+      const producto = productos.find((p) => p.id === partidaEntrada.productoId);
+      const valida = validarPartidaConfiguradaV2(producto, partidaEntrada);
+      if (!valida.ok) return valida;
+
+      const unidades = numero(partidaEntrada.cantidad || 1);
+      const precioUnitario = precioPartidaV2(producto, partidaEntrada);
+      const subtotal = redondear(precioUnitario * unidades);
+      totalVenta += subtotal;
+
+      const recetaResuelta = resolverRecetaPartidaV2(producto, partidaEntrada);
+      let costoPartidaConocido = 0;
+      let costoPartida = null;
+      let costoPendientePartida = !recetaResuelta.completa;
+      let inventarioConsumido = false;
+      const detallePartida = [];
+
+      if (recetaResuelta.completa) {
+        let costoCompleto = true;
+        for (const ingrediente of recetaResuelta.receta) {
+          const requerido = numero(ingrediente.cantidad) * unidades;
+          const plan = planificarFIFO(listaTrabajo, ingrediente.insumoId, requerido);
+          if (!plan.ok) {
+            return {
+              ...plan,
+              mensaje: `${producto.nombre}: ${plan.mensaje || 'Inventario insuficiente.'}`,
+            };
+          }
+
+          costoPartidaConocido += numero(plan.costoConocido);
+          if (plan.costoPendiente) costoCompleto = false;
+          detallePartida.push(...plan.detalle);
+          listaTrabajo = aplicarConsumoFIFOEnLista(listaTrabajo, plan.detalle);
+        }
+
+        inventarioConsumido = detallePartida.length > 0;
+        costoPendientePartida = !costoCompleto;
+        costoPartida = costoCompleto ? redondear(costoPartidaConocido) : null;
+        detalleCosto.push(...detallePartida);
+      }
+
+      if (costoPendientePartida) hayCostoPendiente = true;
+      costoConocido += costoPartidaConocido;
+
+      const presentacion = obtenerPresentacionPartida(producto, partidaEntrada);
+      const tamano = obtenerTamanoPartida(producto, partidaEntrada);
+      const preparacion = (producto.preparaciones || []).find((p) => p.id === partidaEntrada.preparacionId);
+
+      const guardada = {
+        id: partidaEntrada.id || crearId('PART'),
+        productoId: producto.id,
+        producto: producto.nombre,
+        tipoProducto: producto.tipoProducto || 'Fijo',
+        cantidad: unidades,
+        precioUnitario,
+        subtotal,
+        preparacionId: partidaEntrada.preparacionId || null,
+        preparacionNombre: preparacion?.nombre || partidaEntrada.preparacionNombre || '',
+        presentacionId: partidaEntrada.presentacionId || null,
+        presentacionNombre: presentacion?.nombre || partidaEntrada.presentacionNombre || '',
+        tamanoId: partidaEntrada.tamanoId || null,
+        tamanoNombre: tamano?.nombre || partidaEntrada.tamanoNombre || '',
+        selecciones: Array.isArray(partidaEntrada.selecciones) ? partidaEntrada.selecciones : [],
+        quitarInsumoIds: Array.isArray(partidaEntrada.quitarInsumoIds)
+          ? partidaEntrada.quitarInsumoIds
+          : [],
+        nota: String(partidaEntrada.nota || '').trim(),
+        recetaVenta: recetaResuelta.completa ? recetaResuelta.receta : null,
+        recetaCompletaAlVender: recetaResuelta.completa,
+        estadoRecetaAlVender: recetaResuelta.estado,
+        inventarioConsumido,
+        detalleCostoPartida: detallePartida,
+        costoConocido: redondear(costoPartidaConocido),
+        costo: costoPartida,
+        costoPendiente: costoPendientePartida,
+      };
+      partidasGuardadas.push(guardada);
+      clasificacionProductos.push({ ...guardada });
+    }
+
+    totalVenta = redondear(totalVenta);
+    costoConocido = redondear(costoConocido);
+    const utilidadProvisional = redondear(totalVenta - costoConocido);
+    const utilidadBruta = hayCostoPendiente ? null : utilidadProvisional;
+    const margen = !hayCostoPendiente && totalVenta > 0
+      ? (utilidadProvisional / totalVenta) * 100
+      : null;
+
+    const totalUnidades = partidasGuardadas.reduce((s, p) => s + numero(p.cantidad), 0);
+    const venta = {
+      id: ticketId,
+      tipoVenta: 'Carrito',
+      producto: `Ticket · ${totalUnidades} artículo${totalUnidades === 1 ? '' : 's'}`,
+      concepto: `Ticket · ${partidasGuardadas.length} partida${partidasGuardadas.length === 1 ? '' : 's'}`,
+      cantidad: totalUnidades,
+      monto: totalVenta,
+      metodoPago,
+      nota: String(nota || '').trim(),
+      partidas: partidasGuardadas,
+      costoTotal: hayCostoPendiente ? null : costoConocido,
+      costoConocido,
+      utilidadBruta,
+      utilidadProvisional,
+      margen,
+      pendienteClasificar: false,
+      pendienteCostear: hayCostoPendiente,
+      estadoClasificacion: hayCostoPendiente ? 'Clasificada - costo pendiente' : 'Clasificada',
+      detalleCosto,
+      clasificacionProductos,
+      fechaKey: fechaKeyActual(),
+      fecha: fechaActual(),
+      hora: horaActual(),
+    };
+
+    setInsumos(listaTrabajo);
+    setVentas((lista) => [venta, ...lista]);
+
+    const movimientosVenta = detalleCosto.map((detalle) => ({
+      id: crearId('MOV'),
+      tipo: 'Venta',
+      insumoId: detalle.insumoId,
+      insumoNombre: detalle.insumoNombre,
+      cantidad: -numero(detalle.cantidad),
+      unidadBase: insumos.find((i) => i.id === detalle.insumoId)?.unidadBase || '',
+      costo: detalle.costo,
+      loteId: detalle.loteId,
+      ventaId: venta.id,
+      referenciaId: venta.id,
+      fechaKey: venta.fechaKey,
+      fecha: venta.fecha,
+      hora: venta.hora,
+      origen: 'Venta carrito',
+    }));
+    if (movimientosVenta.length) setMovimientos((lista) => [...movimientosVenta, ...lista]);
+
+    registrarMovimientoFlujo({
+      tipo: 'Entrada',
+      monto: totalVenta,
+      concepto: venta.concepto,
+      categoria: 'Venta',
+      metodoPago,
+      referenciaId: venta.id,
+      origen: 'Venta carrito',
+      fechaKey: venta.fechaKey,
+      fecha: venta.fecha,
+      hora: venta.hora,
+    });
+
+    return { ok: true, venta };
+  };
+
   const clasificarVentaLibre = ({ ventaId, partidas }) => {
     const venta = ventas.find((item) => item.id === ventaId);
     if (!venta) return { ok: false, mensaje: 'No se encontró la venta.' };
@@ -1845,7 +2205,7 @@ export function DatosNegocioProvider({ children }) {
     }
 
     const partidasActuales = Array.isArray(venta.clasificacionProductos)
-      ? venta.clasificacionProductos
+      ? venta.clasificacionProductos.map((p) => ({ ...p }))
       : [];
 
     if (!partidasActuales.length && venta.productoId) {
@@ -1863,26 +2223,84 @@ export function DatosNegocioProvider({ children }) {
       return { ok: false, mensaje: 'Esta venta no tiene productos clasificados para costear.' };
     }
 
-    let listaTrabajo = insumos.map((i) => ({ ...i, lotes: (i.lotes || []).map((l) => ({ ...l })) }));
+    let listaTrabajo = insumos.map((i) => ({
+      ...i,
+      lotes: (i.lotes || []).map((l) => ({ ...l })),
+    }));
     const nuevasPartidas = [];
     const nuevoDetalle = [];
     let costoConocido = 0;
     let pendientes = 0;
     let costeadosAhora = 0;
 
+    const costoActualDeDetalle = (detalle) => {
+      const ins = insumos.find((i) => i.id === detalle.insumoId);
+      const lote = (ins?.lotes || []).find((l) => l.id === detalle.loteId);
+      if (!lote || lote.costoPendiente || lote.costoUnidadBase === null || lote.costoUnidadBase === undefined) {
+        return { conocido: false, costoUnidad: null, costo: null };
+      }
+      const costoUnidad = numero(lote.costoUnidadBase);
+      return {
+        conocido: true,
+        costoUnidad,
+        costo: redondear(numero(detalle.cantidad) * costoUnidad),
+      };
+    };
+
     for (const partida of partidasActuales) {
-      // Nunca volvemos a consumir una partida que ya fue costeada.
       if (partida.costo !== null && partida.costo !== undefined) {
         const costoPrevio = numero(partida.costo);
         costoConocido += costoPrevio;
-        nuevasPartidas.push({ ...partida, costoPendiente: false });
+        nuevasPartidas.push({ ...partida, costoConocido: costoPrevio, costoPendiente: false });
         continue;
       }
 
       const producto = productos.find((p) => p.id === partida.productoId);
-      const unidades = numero(partida.cantidad);
+      const unidades = numero(partida.cantidad || 1);
+      if (!producto) {
+        pendientes += 1;
+        nuevasPartidas.push({ ...partida, costo: null, costoPendiente: true });
+        continue;
+      }
 
-      if (!producto || normalizarEstadoReceta(producto) !== 'Completa' || !producto.receta?.length) {
+      // Si esta partida ya descontó físicamente inventario (por ejemplo,
+      // porque el lote tenía costo pendiente), solo resolvemos el costo.
+      // Nunca volvemos a consumir las mismas unidades.
+      if (partida.inventarioConsumido && Array.isArray(partida.detalleCostoPartida) && partida.detalleCostoPartida.length) {
+        let costoPartidaConocido = 0;
+        let todoConocido = true;
+        const detalleActualizado = partida.detalleCostoPartida.map((d) => {
+          const actual = costoActualDeDetalle(d);
+          if (!actual.conocido) todoConocido = false;
+          else costoPartidaConocido += actual.costo;
+          return { ...d, costoUnidad: actual.costoUnidad, costo: actual.costo };
+        });
+
+        costoConocido += costoPartidaConocido;
+        if (!todoConocido) {
+          pendientes += 1;
+          nuevasPartidas.push({
+            ...partida,
+            detalleCostoPartida: detalleActualizado,
+            costoConocido: redondear(costoPartidaConocido),
+            costo: null,
+            costoPendiente: true,
+          });
+        } else {
+          costeadosAhora += 1;
+          nuevasPartidas.push({
+            ...partida,
+            detalleCostoPartida: detalleActualizado,
+            costoConocido: redondear(costoPartidaConocido),
+            costo: redondear(costoPartidaConocido),
+            costoPendiente: false,
+          });
+        }
+        continue;
+      }
+
+      const recetaInfo = resolverRecetaPartidaV2(producto, partida);
+      if (!recetaInfo.completa || !recetaInfo.receta.length) {
         pendientes += 1;
         nuevasPartidas.push({ ...partida, costo: null, costoPendiente: true });
         continue;
@@ -1892,49 +2310,83 @@ export function DatosNegocioProvider({ children }) {
         ...i,
         lotes: (i.lotes || []).map((l) => ({ ...l })),
       }));
-      let costoProducto = 0;
+      let costoPartidaConocido = 0;
       const detalleProducto = [];
-      let productoCosteable = true;
+      let inventarioDisponible = true;
+      let costoCompleto = true;
 
-      for (const ingrediente of producto.receta) {
+      for (const ingrediente of recetaInfo.receta) {
         const requerido = numero(ingrediente.cantidad) * unidades;
         const plan = planificarFIFO(trabajoProducto, ingrediente.insumoId, requerido);
-
-        if (!plan.ok || plan.costoPendiente) {
-          productoCosteable = false;
+        if (!plan.ok) {
+          inventarioDisponible = false;
           break;
         }
-
-        costoProducto += numero(plan.costo);
+        costoPartidaConocido += numero(plan.costoConocido);
+        if (plan.costoPendiente) costoCompleto = false;
         detalleProducto.push(...plan.detalle);
         trabajoProducto = aplicarConsumoFIFOEnLista(trabajoProducto, plan.detalle);
       }
 
-      if (!productoCosteable) {
+      if (!inventarioDisponible) {
         pendientes += 1;
         nuevasPartidas.push({ ...partida, costo: null, costoPendiente: true });
         continue;
       }
 
       listaTrabajo = trabajoProducto;
-      costoConocido += costoProducto;
-      costeadosAhora += 1;
+      costoConocido += costoPartidaConocido;
       nuevoDetalle.push(...detalleProducto);
-      nuevasPartidas.push({
-        ...partida,
-        producto: producto.nombre,
-        costo: redondear(costoProducto),
-        costoPendiente: false,
-      });
+
+      if (!costoCompleto) {
+        pendientes += 1;
+        nuevasPartidas.push({
+          ...partida,
+          recetaVenta: recetaInfo.receta,
+          recetaCompletaAlVender: true,
+          inventarioConsumido: detalleProducto.length > 0,
+          detalleCostoPartida: detalleProducto,
+          costoConocido: redondear(costoPartidaConocido),
+          costo: null,
+          costoPendiente: true,
+        });
+      } else {
+        costeadosAhora += 1;
+        nuevasPartidas.push({
+          ...partida,
+          producto: producto.nombre,
+          recetaVenta: recetaInfo.receta,
+          inventarioConsumido: detalleProducto.length > 0,
+          detalleCostoPartida: detalleProducto,
+          costoConocido: redondear(costoPartidaConocido),
+          costo: redondear(costoPartidaConocido),
+          costoPendiente: false,
+        });
+      }
     }
 
-    const detalleAcumulado = [...(venta.detalleCosto || []), ...nuevoDetalle];
+    const detallePrevioResuelto = (venta.detalleCosto || []).map((d) => {
+      const actual = costoActualDeDetalle(d);
+      return actual.conocido ? { ...d, costoUnidad: actual.costoUnidad, costo: actual.costo } : d;
+    });
+    const detalleAcumulado = [...detallePrevioResuelto, ...nuevoDetalle];
     const totalmenteCosteada = pendientes === 0;
     const utilidadProvisional = numero(venta.monto) - costoConocido;
     const utilidadBruta = totalmenteCosteada ? utilidadProvisional : null;
     const margen = totalmenteCosteada && numero(venta.monto) > 0
       ? (utilidadProvisional / numero(venta.monto)) * 100
       : null;
+
+    const partidasVentaActualizadas = Array.isArray(venta.partidas)
+      ? venta.partidas.map((p) => {
+          const n = nuevasPartidas.find((x) => x.id && p.id && x.id === p.id);
+          if (n) return { ...p, ...n };
+          const porProducto = nuevasPartidas.find(
+            (x) => !x.id && x.productoId === p.productoId && numero(x.cantidad) === numero(p.cantidad)
+          );
+          return porProducto ? { ...p, ...porProducto } : p;
+        })
+      : venta.partidas;
 
     setInsumos(listaTrabajo);
     setVentas((lista) =>
@@ -1953,28 +2405,39 @@ export function DatosNegocioProvider({ children }) {
                 : 'Clasificada - costo pendiente',
               detalleCosto: detalleAcumulado,
               clasificacionProductos: nuevasPartidas,
+              partidas: partidasVentaActualizadas,
             }
           : item
       )
     );
 
-    const movs = nuevoDetalle.map((detalle) => ({
-      id: crearId('MOV'),
-      tipo: 'Venta',
-      insumoId: detalle.insumoId,
-      insumoNombre: detalle.insumoNombre,
-      cantidad: -numero(detalle.cantidad),
-      unidadBase: insumos.find((i) => i.id === detalle.insumoId)?.unidadBase || '',
-      costo: detalle.costo,
-      loteId: detalle.loteId,
-      ventaId,
-      referenciaId: ventaId,
-      fechaKey: venta.fechaKey,
-      fecha: venta.fecha,
-      hora: venta.hora,
-      origen: 'Costeo posterior de venta',
-    }));
-    if (movs.length) setMovimientos((lista) => [...movs, ...lista]);
+    // Actualiza costos de movimientos ya consumidos y agrega solo los nuevos.
+    setMovimientos((lista) => {
+      const actualizados = lista.map((mov) => {
+        if (mov.ventaId !== ventaId) return mov;
+        const det = detalleAcumulado.find(
+          (d) => d.insumoId === mov.insumoId && d.loteId === mov.loteId
+        );
+        return det ? { ...mov, costo: det.costo } : mov;
+      });
+      const movsNuevos = nuevoDetalle.map((detalle) => ({
+        id: crearId('MOV'),
+        tipo: 'Venta',
+        insumoId: detalle.insumoId,
+        insumoNombre: detalle.insumoNombre,
+        cantidad: -numero(detalle.cantidad),
+        unidadBase: insumos.find((i) => i.id === detalle.insumoId)?.unidadBase || '',
+        costo: detalle.costo,
+        loteId: detalle.loteId,
+        ventaId,
+        referenciaId: ventaId,
+        fechaKey: venta.fechaKey,
+        fecha: venta.fecha,
+        hora: venta.hora,
+        origen: 'Costeo posterior de venta',
+      }));
+      return movsNuevos.length ? [...movsNuevos, ...actualizados] : actualizados;
+    });
 
     if (costeadosAhora === 0 && !totalmenteCosteada) {
       return {
@@ -2542,6 +3005,9 @@ export function DatosNegocioProvider({ children }) {
     registrarVentaProducto,
     registrarVentaProductoPendiente,
     registrarVentaLibre,
+    registrarVentaCarrito,
+    resolverRecetaPartidaV2,
+    precioPartidaV2,
     clasificarVentaLibre,
     costearVentaProductoPendiente,
     cancelarVenta,

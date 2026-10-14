@@ -17,6 +17,7 @@ import {
 import InventarioFIFO from './InventarioFIFO.js';
 import ProductosRecetas from './ProductosRecetas.js';
 import Reportes from './Reportes.js';
+import VentasPOS from './VentasPOS.js';
 
 import {
   DatosNegocioProvider,
@@ -317,6 +318,10 @@ function CasaShamyApp() {
 
   if (pantalla === 'Reportes') {
     return <Reportes onVolver={() => setPantalla('Inicio')} />;
+  }
+
+  if (pantalla === 'Ventas') {
+    return <VentasPOS onVolver={() => setPantalla('Inicio')} />;
   }
 
   const hoy = hoyKey();
@@ -837,7 +842,7 @@ function CasaShamyApp() {
         <Text style={styles.seccionTitulo}>Accesos rápidos</Text>
 
         <View style={styles.accionesGrid}>
-          <Boton titulo="Nueva venta" onPress={abrirVentaProducto} />
+          <Boton titulo="Nueva venta" onPress={() => setPantalla('Ventas')} />
           <Boton titulo="Venta libre" tipo="secundario" onPress={() => setModalVentaLibre(true)} />
           <Boton titulo="Nuevo gasto" onPress={() => setModalGasto(true)} />
           <Boton titulo="Inventario" tipo="secundario" onPress={() => setPantalla('Inventario')} />
@@ -1159,7 +1164,6 @@ function CasaShamyApp() {
   );
 
   let contenidoPantalla = pantallaInicio;
-  if (pantalla === 'Ventas') contenidoPantalla = pantallaVentas;
   if (pantalla === 'Gastos') contenidoPantalla = pantallaGastos;
   if (pantalla === 'Créditos') contenidoPantalla = pantallaCreditos;
   if (pantalla === 'Inversiones') contenidoPantalla = pantallaInversiones;
