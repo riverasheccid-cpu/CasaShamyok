@@ -194,6 +194,7 @@ function CasaShamyApp() {
     productos,
     ventas,
     gastos,
+    movimientos,
     inversiones,
     pagosInversion,
     movimientosFlujo,
@@ -338,11 +339,11 @@ function CasaShamyApp() {
     0
   );
 
-  const utilidadConocidaHoy = ventasHoy.reduce((sum, venta) => {
-    if (venta.utilidadBruta === null || venta.utilidadBruta === undefined) {
-      return sum;
+  const utilidadVentasProvisionalHoy = ventasHoy.reduce((sum, venta) => {
+    if (venta.utilidadProvisional !== null && venta.utilidadProvisional !== undefined) {
+      return sum + numero(venta.utilidadProvisional);
     }
-    return sum + numero(venta.utilidadBruta);
+    return sum + numero(venta.monto) - numero(venta.costoConocido);
   }, 0);
 
   const gastosHoy = gastos.filter((gasto) => gasto.fechaKey === hoy);
@@ -350,6 +351,71 @@ function CasaShamyApp() {
     (sum, gasto) => sum + numero(gasto.monto),
     0
   );
+
+  const mermasHoy = movimientos.filter(
+    (movimiento) => movimiento.tipo === 'Merma' && movimiento.fechaKey === hoy
+  );
+  const totalMermaHoy = mermasHoy.reduce(
+    (sum, movimiento) => sum + numero(movimiento.costo),
+    0
+  );
+
+  const utilidadProvisionalHoy =
+    utilidadVentasProvisionalHoy - totalGastosHoy - totalMermaHoy;
+
+  const ventasCostoPendienteHoy = ventasHoy.filter(
+    (venta) => venta.pendienteCostear || venta.costoTotal === null
+  );
+  const montoVentasCostoPendienteHoy = ventasCostoPendienteHoy.reduce(
+    (sum, venta) => sum + numero(venta.monto),
+    0
+  );
+
+  const ticketPromedioHoy = ventasHoy.length
+    ? totalVentasHoy / ventasHoy.length
+    : 0;
+
+  const productosVendidosHoy = {};
+  ventasHoy.forEach((venta) => {
+    const partidas = Array.isArray(venta.partidas) && venta.partidas.length
+      ? venta.partidas
+      : Array.isArray(venta.clasificacionProductos) && venta.clasificacionProductos.length
+      ? venta.clasificacionProductos
+      : venta.productoId
+      ? [{ productoId: venta.productoId, producto: venta.producto, cantidad: venta.cantidad || 1 }]
+      : [];
+
+    partidas.forEach((partida) => {
+      const clave = partida.productoId || partida.producto || 'Producto';
+      if (!productosVendidosHoy[clave]) {
+        productosVendidosHoy[clave] = {
+          nombre: partida.producto || 'Producto',
+          cantidad: 0,
+          monto: 0,
+        };
+      }
+      productosVendidosHoy[clave].cantidad += numero(partida.cantidad || 1);
+      productosVendidosHoy[clave].monto += numero(
+        partida.subtotal ?? (numero(partida.precioCatalogo) * numero(partida.cantidad || 1))
+      );
+    });
+  });
+
+  const productoEstrellaHoy = Object.values(productosVendidosHoy).sort(
+    (a, b) => b.cantidad - a.cantidad || b.monto - a.monto
+  )[0] || null;
+
+  const ventasPorHoraHoy = {};
+  ventasHoy.forEach((venta) => {
+    const hora = String(venta.hora || '').slice(0, 2);
+    if (!hora) return;
+    if (!ventasPorHoraHoy[hora]) ventasPorHoraHoy[hora] = { tickets: 0, monto: 0 };
+    ventasPorHoraHoy[hora].tickets += 1;
+    ventasPorHoraHoy[hora].monto += numero(venta.monto);
+  });
+  const horaPicoHoy = Object.entries(ventasPorHoraHoy).sort(
+    (a, b) => b[1].monto - a[1].monto || b[1].tickets - a[1].tickets
+  )[0] || null;
 
   const resumenInversionistas = obtenerResumenInversionistas();
   const resumenCreditos = obtenerResumenCreditos();
@@ -793,25 +859,54 @@ function CasaShamyApp() {
           />
 
           <TarjetaMetrica
-            titulo="Utilidad conocida"
-            valor={dinero(utilidadConocidaHoy)}
+            titulo="Utilidad provisional"
+            valor={dinero(utilidadProvisionalHoy)}
             detalle={
-              ventasPendientes.length
-                ? `${ventasPendientes.length} venta(s) pendiente(s)`
-                : 'Todo costeado'
+              ventasCostoPendienteHoy.length
+                ? `${ventasCostoPendienteHoy.length} ticket(s) con costo pendiente`
+                : 'Sin costos pendientes hoy'
             }
           />
 
           <TarjetaMetrica
             titulo="Gastos"
             valor={dinero(totalGastosHoy)}
-            detalle={`${gastosHoy.length} registros`}
+            detalle={`${gastosHoy.length} gasto(s) · Merma ${dinero(totalMermaHoy)}`}
           />
 
           <TarjetaMetrica
             titulo="Caja / flujo"
             valor={dinero(saldoCaja)}
             detalle={`Efectivo ${dinero(resumenFlujo.efectivo)} · Banco ${dinero(resumenFlujo.banco)} · Tarjeta ${dinero(resumenFlujo.tarjeta)}`}
+          />
+        </View>
+
+        <Text style={styles.seccionTitulo}>Hoy en un vistazo</Text>
+
+        <View style={styles.gridMetricas}>
+          <TarjetaMetrica
+            titulo="Ticket promedio"
+            valor={dinero(ticketPromedioHoy)}
+            detalle={`${ventasHoy.length} ticket(s)`}
+          />
+          <TarjetaMetrica
+            titulo="Producto estrella"
+            valor={productoEstrellaHoy?.nombre || '—'}
+            detalle={
+              productoEstrellaHoy
+                ? `${productoEstrellaHoy.cantidad} unidad(es)`
+                : 'Sin ventas clasificadas'
+            }
+          />
+          <TarjetaMetrica
+            titulo="Hora con más venta"
+            valor={horaPicoHoy ? `${horaPicoHoy[0]}:00` : '—'}
+            detalle={horaPicoHoy ? dinero(horaPicoHoy[1].monto) : 'Sin datos'}
+          />
+          <TarjetaMetrica
+            titulo="Ventas con costo pendiente"
+            valor={dinero(montoVentasCostoPendienteHoy)}
+            detalle={`${ventasCostoPendienteHoy.length} ticket(s) por resolver`}
           />
         </View>
 
