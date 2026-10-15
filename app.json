@@ -9,6 +9,11 @@
       "supportsTablet": true
     },
     "android": {},
-    "web": {}
+    "web": {},
+    "plugins": [
+      "expo-font",
+      "expo-sharing",
+      "expo-status-bar"
+    ]
   }
 }
