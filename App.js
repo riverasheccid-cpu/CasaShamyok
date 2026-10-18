@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Alert,
   KeyboardAvoidingView,
@@ -19,6 +19,10 @@ import ProductosRecetas from './ProductosRecetas.js';
 import Reportes from './Reportes.js';
 import VentasPOS from './VentasPOS.js';
 import FlujoEfectivo from './FlujoEfectivo.js';
+
+import { supabase } from './lib/supabase.js';
+import AuthCasaShamy from './AuthCasaShamy.js';
+import SupabaseSync from './SupabaseSync.js';
 
 import {
   DatosNegocioProvider,
@@ -1815,9 +1819,49 @@ function CasaShamyApp() {
 }
 
 export default function App() {
+  const [session, setSession] = useState(null);
+  const [cargandoSesion, setCargandoSesion] = useState(true);
+
+  useEffect(() => {
+    let montado = true;
+
+    supabase.auth.getSession().then(({ data, error }) => {
+      if (!montado) return;
+      if (error) console.log('Error leyendo sesión Supabase:', error);
+      setSession(data?.session || null);
+      setCargandoSesion(false);
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      (_evento, siguienteSesion) => {
+        if (!montado) return;
+        setSession(siguienteSesion);
+        setCargandoSesion(false);
+      }
+    );
+
+    return () => {
+      montado = false;
+      subscription?.unsubscribe();
+    };
+  }, []);
+
+  if (cargandoSesion) {
+    return (
+      <SafeAreaView style={styles.cargandoPantalla}>
+        <Text style={styles.cargandoTitulo}>Casa Shamy</Text>
+        <Text style={styles.cargandoTexto}>Cargando sesión…</Text>
+      </SafeAreaView>
+    );
+  }
+
+  if (!session) return <AuthCasaShamy />;
+
   return (
     <DatosNegocioProvider>
-      <CasaShamyApp />
+      <SupabaseSync session={session}>
+        <CasaShamyApp />
+      </SupabaseSync>
     </DatosNegocioProvider>
   );
 }
