@@ -6,3 +6,4 @@ fix-*.js
 fix_*.js
 .env
 instalar-*.js
+dist/
