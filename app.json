@@ -14,6 +14,12 @@
       "expo-font",
       "expo-sharing",
       "expo-status-bar"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "afc38622-2d86-45d2-a779-0ec689678aae"
+      }
+    },
+    "owner": "sheccid1"
   }
 }
