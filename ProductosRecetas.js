@@ -480,13 +480,15 @@ export default function ProductosRecetas(props = {}) {
   const abrirNuevaPresentacion = () => {
     setPresentacionEditandoId(null);
     setPresentacionDraft({ nombre: '', precio: '', preparacionId: null, receta: [], estadoReceta: 'Sin receta', activa: true });
-    setModalPresentacion(true);
+    setModalConfig(false);
+    setTimeout(() => setModalPresentacion(true), 400);
   };
 
   const abrirEditarPresentacion = (p) => {
     setPresentacionEditandoId(p.id);
     setPresentacionDraft({ ...copia(p), precio: String(p.precio ?? '') });
-    setModalPresentacion(true);
+    setModalConfig(false);
+    setTimeout(() => setModalPresentacion(true), 400);
   };
 
   const guardarPresentacion = () => {
@@ -509,13 +511,15 @@ export default function ProductosRecetas(props = {}) {
         : [...(x.presentaciones || []), item],
     }));
     setModalPresentacion(false);
+    setTimeout(() => setModalConfig(true), 400);
   };
 
   const abrirRecetaPresentacion = (p) => {
     setPresentacionRecetaId(p.id);
     setRecetaPresentacionDraft(copia(p.receta || []) || []);
     setEstadoRecetaPresentacion(p.estadoReceta || ((p.receta || []).length ? 'En proceso' : 'Sin receta'));
-    setModalRecetaPresentacion(true);
+    setModalConfig(false);
+    setTimeout(() => setModalRecetaPresentacion(true), 400);
   };
 
   const guardarRecetaPresentacion = () => {
@@ -529,18 +533,21 @@ export default function ProductosRecetas(props = {}) {
       ),
     }));
     setModalRecetaPresentacion(false);
+    setTimeout(() => setModalConfig(true), 400);
   };
 
   const abrirNuevoTamano = () => {
     setTamanoEditandoId(null);
     setTamanoDraft({ nombre: '', precio: '', activo: true, reglasSecciones: [] });
-    setModalTamano(true);
+    setModalConfig(false);
+    setTimeout(() => setModalTamano(true), 400);
   };
 
   const abrirEditarTamano = (t) => {
     setTamanoEditandoId(t.id);
     setTamanoDraft({ ...copia(t), precio: String(t.precio ?? '') });
-    setModalTamano(true);
+    setModalConfig(false);
+    setTimeout(() => setModalTamano(true), 400);
   };
 
   const guardarTamano = () => {
@@ -554,9 +561,11 @@ export default function ProductosRecetas(props = {}) {
         : [...(x.tamanos || []), item],
     }));
     setModalTamano(false);
+    setTimeout(() => setModalConfig(true), 400);
   };
 
   const abrirReglasTamano = (t) => {
+    setModalConfig(false);
     const secciones = configDraft.seccionesPersonalizacion || [];
     const existentes = t.reglasSecciones || [];
     setTamanoReglasId(t.id);
@@ -570,7 +579,7 @@ export default function ProductosRecetas(props = {}) {
         precioExtra: String(r?.precioExtra ?? 0),
       };
     }));
-    setModalReglasTamano(true);
+    setTimeout(() => setModalReglasTamano(true), 400);
   };
 
   const guardarReglasTamano = () => {
@@ -585,18 +594,21 @@ export default function ProductosRecetas(props = {}) {
       tamanos: (d.tamanos || []).map((t) => t.id === tamanoReglasId ? { ...t, reglasSecciones: reglas } : t),
     }));
     setModalReglasTamano(false);
+    setTimeout(() => setModalConfig(true), 400);
   };
 
   const abrirNuevaSeccion = () => {
     setSeccionEditandoId(null);
     setSeccionDraft({ nombre: '', tipoSeleccion: 'Única', obligatoria: false, min: '0', max: '1', activa: true, opciones: [] });
-    setModalSeccion(true);
+    setModalConfig(false);
+    setTimeout(() => setModalSeccion(true), 400);
   };
 
   const abrirEditarSeccion = (s) => {
     setSeccionEditandoId(s.id);
     setSeccionDraft({ ...copia(s), min: String(s.min ?? 0), max: String(s.max ?? 1) });
-    setModalSeccion(true);
+    setModalConfig(false);
+    setTimeout(() => setModalSeccion(true), 400);
   };
 
   const guardarSeccion = () => {
@@ -618,6 +630,7 @@ export default function ProductosRecetas(props = {}) {
         : [...(x.seccionesPersonalizacion || []), item],
     }));
     setModalSeccion(false);
+    setTimeout(() => setModalConfig(true), 400);
   };
 
   const abrirNuevaOpcion = (seccionId) => {
@@ -626,15 +639,32 @@ export default function ProductosRecetas(props = {}) {
     setOpcionDraft({
       nombre: '', ajustePrecio: '0', accionInventario: 'Agregar', insumoId: null,
       cantidad: '', reemplazaInsumoId: null, activa: true,
+      valoresPorPresentacion: [], valoresPorTamano: [],
     });
-    setModalOpcion(true);
+    setModalConfig(false);
+    setTimeout(() => setModalOpcion(true), 400);
   };
 
   const abrirEditarOpcion = (seccionId, op) => {
     setSeccionOpcionId(seccionId);
     setOpcionEditandoId(op.id);
-    setOpcionDraft({ ...copia(op), ajustePrecio: String(op.ajustePrecio ?? 0), cantidad: String(op.cantidad ?? '') });
-    setModalOpcion(true);
+    setOpcionDraft({
+      ...copia(op),
+      ajustePrecio: String(op.ajustePrecio ?? 0),
+      cantidad: String(op.cantidad ?? ''),
+      valoresPorPresentacion: (op.valoresPorPresentacion || []).map((v) => ({
+        ...v,
+        cantidad: String(v.cantidad ?? ''),
+        ajustePrecio: String(v.ajustePrecio ?? 0),
+      })),
+      valoresPorTamano: (op.valoresPorTamano || []).map((v) => ({
+        ...v,
+        cantidad: String(v.cantidad ?? ''),
+        ajustePrecio: String(v.ajustePrecio ?? 0),
+      })),
+    });
+    setModalConfig(false);
+    setTimeout(() => setModalOpcion(true), 400);
   };
 
   const guardarOpcion = () => {
@@ -643,25 +673,73 @@ export default function ProductosRecetas(props = {}) {
     if (d.accionInventario !== 'Ninguno' && !d.insumoId) {
       return Alert.alert('Falta insumo', 'Selecciona el insumo que consume esta opción o elige “Ninguno”.');
     }
-    if (d.accionInventario !== 'Ninguno' && numero(d.cantidad) <= 0) {
-      return Alert.alert('Cantidad inválida', 'Indica cuánto inventario consume esta opción.');
-    }
     if (d.accionInventario === 'Sustituir' && !d.reemplazaInsumoId) {
       return Alert.alert('Falta sustitución', 'Selecciona qué insumo de la receta base sustituye esta opción.');
     }
+
+    const presentacionesActivas = (configDraft?.presentaciones || []).filter((p) => p.activa !== false);
+    const tamanosActivos = (configDraft?.tamanos || []).filter((t) => t.activo !== false);
+    const requierePresentaciones = configDraft?.tipoProducto === 'Bebida configurable';
+    const requiereTamanos = configDraft?.tipoProducto === 'Arma el tuyo';
+
+    if (requierePresentaciones && presentacionesActivas.length === 0) {
+      return Alert.alert('Faltan presentaciones', 'Primero crea las presentaciones de esta bebida. Después podrás indicar cuánto consume cada personalización en cada presentación.');
+    }
+    if (requiereTamanos && tamanosActivos.length === 0) {
+      return Alert.alert('Faltan tamaños', 'Primero crea los tamaños. Después podrás indicar cuánto consume cada personalización en cada tamaño.');
+    }
+
+    const usaPresentaciones = presentacionesActivas.length > 0;
+    const usaTamanos = !usaPresentaciones && tamanosActivos.length > 0;
+
+    const valoresPorPresentacion = presentacionesActivas.map((p) => {
+      const valor = (d.valoresPorPresentacion || []).find((v) => v.presentacionId === p.id) || {};
+      return {
+        presentacionId: p.id,
+        presentacionNombre: p.nombre,
+        cantidad: d.accionInventario === 'Ninguno' ? 0 : numero(valor.cantidad),
+        ajustePrecio: numero(valor.ajustePrecio),
+      };
+    });
+
+    const valoresPorTamano = tamanosActivos.map((t) => {
+      const valor = (d.valoresPorTamano || []).find((v) => v.tamanoId === t.id) || {};
+      return {
+        tamanoId: t.id,
+        tamanoNombre: t.nombre,
+        cantidad: d.accionInventario === 'Ninguno' ? 0 : numero(valor.cantidad),
+        ajustePrecio: numero(valor.ajustePrecio),
+      };
+    });
+
+    if (d.accionInventario !== 'Ninguno') {
+      if (usaPresentaciones) {
+        const falta = valoresPorPresentacion.find((v) => numero(v.cantidad) <= 0);
+        if (falta) return Alert.alert('Cantidad inválida', 'Indica cuánto inventario consume esta opción en ' + falta.presentacionNombre + '.');
+      } else if (usaTamanos) {
+        const falta = valoresPorTamano.find((v) => numero(v.cantidad) <= 0);
+        if (falta) return Alert.alert('Cantidad inválida', 'Indica cuánto inventario consume esta opción en ' + falta.tamanoNombre + '.');
+      } else if (numero(d.cantidad) <= 0) {
+        return Alert.alert('Cantidad inválida', 'Indica cuánto inventario consume esta opción.');
+      }
+    }
+
     const ins = insumos.find((i) => i.id === d.insumoId);
     const rep = insumos.find((i) => i.id === d.reemplazaInsumoId);
     const item = {
       ...d,
       id: opcionEditandoId || uid('OP'),
       nombre: texto(d.nombre),
-      ajustePrecio: numero(d.ajustePrecio),
-      cantidad: d.accionInventario === 'Ninguno' ? 0 : numero(d.cantidad),
+      ajustePrecio: usaPresentaciones || usaTamanos ? 0 : numero(d.ajustePrecio),
+      cantidad: d.accionInventario === 'Ninguno' || usaPresentaciones || usaTamanos ? 0 : numero(d.cantidad),
+      valoresPorPresentacion: usaPresentaciones ? valoresPorPresentacion : [],
+      valoresPorTamano: usaTamanos ? valoresPorTamano : [],
       insumoNombre: ins?.nombre || '',
       reemplazaInsumoNombre: rep?.nombre || '',
       insumoId: d.accionInventario === 'Ninguno' ? null : d.insumoId,
       reemplazaInsumoId: d.accionInventario === 'Sustituir' ? d.reemplazaInsumoId : null,
     };
+
     setConfigDraft((x) => ({
       ...x,
       seccionesPersonalizacion: (x.seccionesPersonalizacion || []).map((s) => {
@@ -675,6 +753,7 @@ export default function ProductosRecetas(props = {}) {
       }),
     }));
     setModalOpcion(false);
+    setTimeout(() => setModalConfig(true), Platform.OS === 'ios' ? 350 : 50);
   };
 
   const abrirNuevoInsumo = () => {
@@ -927,7 +1006,7 @@ export default function ProductosRecetas(props = {}) {
               {(s.opciones || []).map((o) => <Pressable key={o.id} onPress={() => abrirEditarOpcion(s.id, o)} style={styles.opcionConfig}>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.opcionTitulo}>{o.nombre}</Text>
-                  <Text style={styles.opcionMeta}>{numero(o.ajustePrecio) ? `${numero(o.ajustePrecio) > 0 ? '+' : ''}${dinero(o.ajustePrecio)}` : 'Sin costo extra'} · {o.accionInventario || 'Ninguno'}{o.insumoNombre ? ` · ${o.cantidad} ${o.insumoNombre}` : ''}</Text>
+                  <Text style={styles.opcionMeta}>{(o.valoresPorPresentacion || []).length ? 'Valores por presentación' : (o.valoresPorTamano || []).length ? 'Valores por tamaño' : numero(o.ajustePrecio) ? `${numero(o.ajustePrecio) > 0 ? '+' : ''}${dinero(o.ajustePrecio)}` : 'Sin costo extra'} · {o.accionInventario || 'Ninguno'}{o.insumoNombre ? ` · ${o.insumoNombre}` : ''}</Text>
                 </View>
                 <Text style={styles.editarMini}>Editar</Text>
               </Pressable>)}
@@ -942,7 +1021,7 @@ export default function ProductosRecetas(props = {}) {
         </>}
       </ModalBase>
 
-      <ModalBase visible={modalPresentacion} titulo={presentacionEditandoId ? 'Editar presentación' : 'Nueva presentación'} onCerrar={() => setModalPresentacion(false)} alto="78%">
+      <ModalBase visible={modalPresentacion} titulo={presentacionEditandoId ? 'Editar presentación' : 'Nueva presentación'} onCerrar={() => { setModalPresentacion(false); setTimeout(() => setModalConfig(true), 400); }} alto="78%">
         {presentacionDraft && <>
           <Campo etiqueta="Nombre" value={presentacionDraft.nombre} onChangeText={(v) => setPresentacionDraft({ ...presentacionDraft, nombre: v })} placeholder="Ej. 16 oz" />
           <Campo etiqueta="Precio de esta presentación" value={presentacionDraft.precio} onChangeText={(v) => setPresentacionDraft({ ...presentacionDraft, precio: v })} keyboardType="decimal-pad" />
@@ -955,14 +1034,14 @@ export default function ProductosRecetas(props = {}) {
         </>}
       </ModalBase>
 
-      <ModalBase visible={modalRecetaPresentacion} titulo="Receta de presentación" onCerrar={() => setModalRecetaPresentacion(false)}>
+      <ModalBase visible={modalRecetaPresentacion} titulo="Receta de presentación" onCerrar={() => { setModalRecetaPresentacion(false); setTimeout(() => setModalConfig(true), 400); }}>
         <Text style={styles.infoCaja}>Esta receta permite que 16 oz, 24 oz, taza u otra variante consuman cantidades diferentes.</Text>
         <RecetaEditor receta={recetaPresentacionDraft} onChange={setRecetaPresentacionDraft} insumos={insumos} estado={estadoRecetaPresentacion} onEstadoChange={setEstadoRecetaPresentacion} />
         <View style={{ height: 16 }} />
         <Boton titulo="Guardar receta de presentación" onPress={guardarRecetaPresentacion} />
       </ModalBase>
 
-      <ModalBase visible={modalTamano} titulo={tamanoEditandoId ? 'Editar tamaño' : 'Nuevo tamaño'} onCerrar={() => setModalTamano(false)} alto="68%">
+      <ModalBase visible={modalTamano} titulo={tamanoEditandoId ? 'Editar tamaño' : 'Nuevo tamaño'} onCerrar={() => { setModalTamano(false); setTimeout(() => setModalConfig(true), 400); }} alto="68%">
         {tamanoDraft && <>
           <Campo etiqueta="Nombre" value={tamanoDraft.nombre} onChangeText={(v) => setTamanoDraft({ ...tamanoDraft, nombre: v })} placeholder="Ej. Grande" />
           <Campo etiqueta="Precio" value={tamanoDraft.precio} onChangeText={(v) => setTamanoDraft({ ...tamanoDraft, precio: v })} keyboardType="decimal-pad" />
@@ -971,7 +1050,7 @@ export default function ProductosRecetas(props = {}) {
         </>}
       </ModalBase>
 
-      <ModalBase visible={modalReglasTamano} titulo="Límites del tamaño" onCerrar={() => setModalReglasTamano(false)}>
+      <ModalBase visible={modalReglasTamano} titulo="Límites del tamaño" onCerrar={() => { setModalReglasTamano(false); setTimeout(() => setModalConfig(true), 400); }}>
         {reglasDraft.length === 0 ? <Text style={styles.infoCaja}>No hay secciones creadas todavía.</Text> : reglasDraft.map((r, idx) => <View key={r.seccionId} style={styles.reglaCard}>
           <Text style={styles.subCardTitulo}>{r.nombre}</Text>
           <Campo etiqueta="Opciones incluidas" value={r.incluidas} onChangeText={(v) => setReglasDraft((arr) => arr.map((x, i) => i === idx ? { ...x, incluidas: v } : x))} keyboardType="number-pad" />
@@ -981,7 +1060,7 @@ export default function ProductosRecetas(props = {}) {
         <Boton titulo="Guardar límites" onPress={guardarReglasTamano} />
       </ModalBase>
 
-      <ModalBase visible={modalSeccion} titulo={seccionEditandoId ? 'Editar sección' : 'Nueva sección'} onCerrar={() => setModalSeccion(false)} alto="80%">
+      <ModalBase visible={modalSeccion} titulo={seccionEditandoId ? 'Editar sección' : 'Nueva sección'} onCerrar={() => { setModalSeccion(false); setTimeout(() => setModalConfig(true), 400); }} alto="80%">
         {seccionDraft && <>
           <Campo etiqueta="Nombre de la sección" value={seccionDraft.nombre} onChangeText={(v) => setSeccionDraft({ ...seccionDraft, nombre: v })} placeholder="Ej. Leche" />
           <Text style={styles.etiqueta}>Tipo de selección</Text>
@@ -995,19 +1074,71 @@ export default function ProductosRecetas(props = {}) {
           <Boton titulo="Guardar sección" onPress={guardarSeccion} />
         </>}
       </ModalBase>
-
-      <ModalBase visible={modalOpcion} titulo={opcionEditandoId ? 'Editar opción' : 'Nueva opción'} onCerrar={() => setModalOpcion(false)}>
+      <ModalBase
+        visible={modalOpcion}
+        titulo={opcionEditandoId ? 'Editar opción' : 'Nueva opción'}
+        onCerrar={() => {
+          setModalOpcion(false);
+          setTimeout(() => setModalConfig(true), Platform.OS === 'ios' ? 350 : 50);
+        }}
+      >
         {opcionDraft && <>
           <Campo etiqueta="Nombre" value={opcionDraft.nombre} onChangeText={(v) => setOpcionDraft({ ...opcionDraft, nombre: v })} placeholder="Nombre que verá quien cobra" />
-          <Campo etiqueta="Ajuste de precio" value={opcionDraft.ajustePrecio} onChangeText={(v) => setOpcionDraft({ ...opcionDraft, ajustePrecio: v })} keyboardType="numbers-and-punctuation" ayuda="Usa 0 si no tiene costo extra." />
 
           <Text style={styles.etiqueta}>Efecto en inventario</Text>
           <View style={styles.chipsWrap}>{ACCIONES_INVENTARIO.map((a) => <Chip key={a} label={a} activo={opcionDraft.accionInventario === a} onPress={() => setOpcionDraft({ ...opcionDraft, accionInventario: a })} />)}</View>
 
+          {(configDraft?.presentaciones || []).filter((p) => p.activa !== false).length > 0 ? <>
+            <Text style={styles.etiqueta}>Valores por presentación</Text>
+            <Text style={styles.infoCaja}>Aquí defines por separado cuánto consume y cuánto aumenta el precio en cada presentación.</Text>
+            {(configDraft.presentaciones || []).filter((p) => p.activa !== false).map((p) => {
+              const prep = (configDraft.preparaciones || []).find((x) => x.id === p.preparacionId);
+              const actual = (opcionDraft.valoresPorPresentacion || []).find((v) => v.presentacionId === p.id) || {};
+              const actualizar = (campo, valor) => setOpcionDraft((d) => ({
+                ...d,
+                valoresPorPresentacion: [
+                  ...(d.valoresPorPresentacion || []).filter((v) => v.presentacionId !== p.id),
+                  { presentacionId: p.id, presentacionNombre: p.nombre, cantidad: actual.cantidad ?? '', ajustePrecio: actual.ajustePrecio ?? '0', [campo]: valor },
+                ],
+              }));
+              return <View key={p.id} style={styles.reglaCard}>
+                <Text style={styles.subCardTitulo}>{p.nombre}{prep ? ' · ' + prep.nombre : ''}</Text>
+                {opcionDraft.accionInventario !== 'Ninguno' && <Campo etiqueta="Cantidad consumida" value={String(actual.cantidad ?? '')} onChangeText={(v) => actualizar('cantidad', v)} keyboardType="decimal-pad" />}
+                <Campo etiqueta="Ajuste de precio" value={String(actual.ajustePrecio ?? '0')} onChangeText={(v) => actualizar('ajustePrecio', v)} keyboardType="numbers-and-punctuation" ayuda="Usa 0 si no tiene cargo extra." />
+              </View>;
+            })}
+          </> : configDraft?.tipoProducto === 'Bebida configurable' ? <>
+            <Text style={styles.etiqueta}>Valores por presentación</Text>
+            <Text style={styles.infoCaja}>Primero crea las presentaciones de esta bebida. No se usará una cantidad única porque el consumo depende de la presentación.</Text>
+          </> : (configDraft?.tamanos || []).filter((t) => t.activo !== false).length > 0 ? <>
+            <Text style={styles.etiqueta}>Valores por tamaño</Text>
+            <Text style={styles.infoCaja}>Aquí defines por separado cuánto consume y cuánto aumenta el precio en cada tamaño.</Text>
+            {(configDraft.tamanos || []).filter((t) => t.activo !== false).map((t) => {
+              const actual = (opcionDraft.valoresPorTamano || []).find((v) => v.tamanoId === t.id) || {};
+              const actualizar = (campo, valor) => setOpcionDraft((d) => ({
+                ...d,
+                valoresPorTamano: [
+                  ...(d.valoresPorTamano || []).filter((v) => v.tamanoId !== t.id),
+                  { tamanoId: t.id, tamanoNombre: t.nombre, cantidad: actual.cantidad ?? '', ajustePrecio: actual.ajustePrecio ?? '0', [campo]: valor },
+                ],
+              }));
+              return <View key={t.id} style={styles.reglaCard}>
+                <Text style={styles.subCardTitulo}>{t.nombre}</Text>
+                {opcionDraft.accionInventario !== 'Ninguno' && <Campo etiqueta="Cantidad consumida" value={String(actual.cantidad ?? '')} onChangeText={(v) => actualizar('cantidad', v)} keyboardType="decimal-pad" />}
+                <Campo etiqueta="Ajuste de precio" value={String(actual.ajustePrecio ?? '0')} onChangeText={(v) => actualizar('ajustePrecio', v)} keyboardType="numbers-and-punctuation" ayuda="Usa 0 si no tiene cargo extra." />
+              </View>;
+            })}
+          </> : configDraft?.tipoProducto === 'Arma el tuyo' ? <>
+            <Text style={styles.etiqueta}>Valores por tamaño</Text>
+            <Text style={styles.infoCaja}>Primero crea los tamaños. No se usará una cantidad única porque el consumo depende del tamaño.</Text>
+          </> : <>
+            <Campo etiqueta="Ajuste de precio" value={opcionDraft.ajustePrecio} onChangeText={(v) => setOpcionDraft({ ...opcionDraft, ajustePrecio: v })} keyboardType="numbers-and-punctuation" ayuda="Usa 0 si no tiene costo extra." />
+            {opcionDraft.accionInventario !== 'Ninguno' && <Campo etiqueta="Cantidad consumida" value={opcionDraft.cantidad} onChangeText={(v) => setOpcionDraft({ ...opcionDraft, cantidad: v })} keyboardType="decimal-pad" />}
+          </>}
+
           {opcionDraft.accionInventario !== 'Ninguno' && <>
             <Text style={styles.etiqueta}>Insumo que se consume</Text>
             <View style={styles.listaSeleccion}>{insumos.map((i) => <Pressable key={i.id} onPress={() => setOpcionDraft({ ...opcionDraft, insumoId: i.id })} style={[styles.opcionFila, opcionDraft.insumoId === i.id && styles.opcionFilaActiva]}><Text style={styles.opcionTitulo}>{i.nombre}</Text>{opcionDraft.insumoId === i.id && <Text style={styles.check}>✓</Text>}</Pressable>)}</View>
-            <Campo etiqueta="Cantidad consumida" value={opcionDraft.cantidad} onChangeText={(v) => setOpcionDraft({ ...opcionDraft, cantidad: v })} keyboardType="decimal-pad" />
           </>}
 
           {opcionDraft.accionInventario === 'Sustituir' && <>
@@ -1020,9 +1151,11 @@ export default function ProductosRecetas(props = {}) {
           {opcionEditandoId && <Boton titulo="Eliminar opción" tipo="peligro" onPress={() => {
             setConfigDraft((x) => ({ ...x, seccionesPersonalizacion: (x.seccionesPersonalizacion || []).map((s) => s.id === seccionOpcionId ? { ...s, opciones: (s.opciones || []).filter((o) => o.id !== opcionEditandoId) } : s) }));
             setModalOpcion(false);
+            setTimeout(() => setModalConfig(true), Platform.OS === 'ios' ? 350 : 50);
           }} />}
         </>}
       </ModalBase>
+
 
       <ModalBase visible={modalInsumo} titulo={insumoEditando ? 'Editar insumo' : 'Nuevo insumo'} onCerrar={() => setModalInsumo(false)}>
         {insumoDraft && <>

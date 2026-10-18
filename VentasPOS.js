@@ -148,6 +148,7 @@ export default function VentasPOS({ onVolver }) {
     registrarVentaCarrito,
     registrarVentaLibre,
     resolverRecetaPartidaV2,
+    resolverValoresOpcionV2,
     precioPartidaV2,
     cancelarVenta,
     costearVentaProductoPendiente,
@@ -208,8 +209,7 @@ export default function VentasPOS({ onVolver }) {
       const producto = productos.find((x) => x.id === p.productoId);
       if (!producto) continue;
       const info = resolverRecetaPartidaV2(producto, p);
-      if (!info?.completa) continue;
-      for (const ing of info.receta || []) {
+      for (const ing of info?.receta || []) {
         mapa[ing.insumoId] = numero(mapa[ing.insumoId]) + numero(ing.cantidad) * numero(p.cantidad || 1);
       }
     }
@@ -280,7 +280,8 @@ export default function VentasPOS({ onVolver }) {
 
   const opcionAgotada = (opcion) => {
     if (!opcion || opcion.accionInventario === 'Ninguno' || !opcion.insumoId) return false;
-    return !disponiblePara(opcion.insumoId, numero(opcion.cantidad) * numero(draft?.cantidad || 1));
+    const valoresOpcion = resolverValoresOpcionV2(productoActual, draft, opcion);
+    return !disponiblePara(opcion.insumoId, numero(valoresOpcion.cantidad) * numero(draft?.cantidad || 1));
   };
 
   const toggleOpcion = (seccion, opcion) => {
@@ -303,7 +304,10 @@ export default function VentasPOS({ onVolver }) {
 
     const opcionesSnapshot = (seccion.opciones || [])
       .filter((o) => nuevos.includes(o.id))
-      .map((o) => ({ id: o.id, nombre: o.nombre, ajustePrecio: numero(o.ajustePrecio) }));
+      .map((o) => {
+        const valoresOpcion = resolverValoresOpcionV2(productoActual, draft, o);
+        return { id: o.id, nombre: o.nombre, ajustePrecio: numero(valoresOpcion.ajustePrecio) };
+      });
 
     setDraft((d) => {
       const otros = (d.selecciones || []).filter((g) => g.seccionId !== seccion.id);
@@ -373,7 +377,7 @@ export default function VentasPOS({ onVolver }) {
     }
 
     const info = resolverRecetaPartidaV2(productoActual, draft);
-    if (info?.completa) {
+    if ((info?.receta || []).length > 0) {
       for (const ing of info.receta || []) {
         const requerido = numero(ing.cantidad) * numero(draft.cantidad || 1);
         if (!disponiblePara(ing.insumoId, requerido)) {
@@ -671,7 +675,8 @@ export default function VentasPOS({ onVolver }) {
                       const agotada = opcionAgotada(o);
                       const seleccionada = ids.includes(o.id);
                       const extrasAhora = regla && ids.length >= numero(regla.incluidas) && !seleccionada && regla.permiteExtras;
-                      const adicional = numero(o.ajustePrecio) + (extrasAhora ? numero(regla.precioExtra) : 0);
+                      const valoresOpcion = resolverValoresOpcionV2(productoActual, draft, o);
+                      const adicional = numero(valoresOpcion.ajustePrecio) + (extrasAhora ? numero(regla.precioExtra) : 0);
                       return (
                         <Chip
                           key={o.id}

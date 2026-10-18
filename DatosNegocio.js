@@ -1318,6 +1318,20 @@ export function DatosNegocioProvider({ children }) {
         return { ok: false, mensaje: 'No se puede cancelar porque ya se consumió parte de este lote.' };
       }
 
+      const inversionesLigadas = inversiones.filter((inv) => inv.referenciaId === movimientoId);
+
+      for (const inv of inversionesLigadas) {
+        const nombre = inv.perteneceA || inv.pagadoPor || 'Socio';
+        const resumen = obtenerResumenInversionistas().find((item) => item.nombre === nombre);
+        const aportadoSinEsta = numero(resumen?.aportado) - numero(inv.monto);
+        if (numero(resumen?.recuperado) > aportadoSinEsta + 0.0001) {
+          return {
+            ok: false,
+            mensaje: 'No se puede cancelar esta compra porque ya existen pagos de recuperación asociados al capital del socio.',
+          };
+        }
+      }
+
       setInsumos((lista) =>
         lista.map((i) =>
           i.id === mov.insumoId
@@ -1325,13 +1339,26 @@ export function DatosNegocioProvider({ children }) {
             : i
         )
       );
+
       setMovimientos((lista) => lista.filter((item) => item.id !== movimientoId));
-      return { ok: true };
+
+      if (inversionesLigadas.length) {
+        const ids = new Set(inversionesLigadas.map((inv) => inv.id));
+        setInversiones((lista) => lista.filter((inv) => !ids.has(inv.id)));
+      }
+
+      // Una compra eliminada no debe seguir afectando Caja/Flujo.
+      setMovimientosFlujo((lista) =>
+        lista.filter((flujo) =>
+          !(flujo.referenciaId === movimientoId && flujo.origen === 'Compra inventario')
+        )
+      );
+
+      return { ok: true, inversionesCanceladas: inversionesLigadas.length };
     }
 
     return { ok: false, mensaje: 'Este movimiento no se puede cancelar directamente.' };
   };
-
   // =====================================================
   // COMPRAS DE INVENTARIO PENDIENTES DE ASIGNAR
   // =====================================================
@@ -1977,6 +2004,29 @@ export function DatosNegocioProvider({ children }) {
     return [...mapa.values()];
   };
 
+  const resolverValoresOpcionV2 = (producto, partida = {}, opcion = {}) => {
+    let cantidad = numero(opcion.cantidad);
+    let ajustePrecio = numero(opcion.ajustePrecio);
+
+    if (partida?.presentacionId && Array.isArray(opcion.valoresPorPresentacion)) {
+      const valor = opcion.valoresPorPresentacion.find((v) => v.presentacionId === partida.presentacionId);
+      if (valor) {
+        cantidad = numero(valor.cantidad);
+        ajustePrecio = numero(valor.ajustePrecio);
+      }
+    }
+
+    if (partida?.tamanoId && Array.isArray(opcion.valoresPorTamano)) {
+      const valor = opcion.valoresPorTamano.find((v) => v.tamanoId === partida.tamanoId);
+      if (valor) {
+        cantidad = numero(valor.cantidad);
+        ajustePrecio = numero(valor.ajustePrecio);
+      }
+    }
+
+    return { cantidad, ajustePrecio };
+  };
+
   const resolverRecetaPartidaV2 = (producto, partida = {}) => {
     if (!producto) return { receta: [], completa: false, estado: 'Sin receta' };
 
@@ -2008,17 +2058,19 @@ export function DatosNegocioProvider({ children }) {
         const opcion = obtenerOpcionProducto(producto, grupo.seccionId, opcionId);
         if (!opcion || opcion.activa === false || opcion.accionInventario === 'Ninguno') continue;
 
+        const valoresOpcion = resolverValoresOpcionV2(producto, partida, opcion);
+
         if (opcion.accionInventario === 'Sustituir' && opcion.reemplazaInsumoId) {
           receta = receta.filter((r) => r.insumoId !== opcion.reemplazaInsumoId);
         }
 
-        if (opcion.insumoId && numero(opcion.cantidad) > 0) {
+        if (opcion.insumoId && numero(valoresOpcion.cantidad) > 0) {
           receta.push({
             id: crearId('RECV2'),
             insumoId: opcion.insumoId,
             insumoNombre:
               opcion.insumoNombre || insumos.find((i) => i.id === opcion.insumoId)?.nombre || '',
-            cantidad: numero(opcion.cantidad),
+            cantidad: numero(valoresOpcion.cantidad),
             unidadBase: insumos.find((i) => i.id === opcion.insumoId)?.unidadBase || '',
           });
         }
@@ -2048,7 +2100,10 @@ export function DatosNegocioProvider({ children }) {
         : [];
       for (const opcionId of ids) {
         const opcion = obtenerOpcionProducto(producto, grupo.seccionId, opcionId);
-        if (opcion) precio += numero(opcion.ajustePrecio);
+        if (opcion) {
+          const valoresOpcion = resolverValoresOpcionV2(producto, partida, opcion);
+          precio += numero(valoresOpcion.ajustePrecio);
+        }
       }
 
       if (tamano) {
@@ -2164,8 +2219,12 @@ export function DatosNegocioProvider({ children }) {
       let inventarioConsumido = false;
       const detallePartida = [];
 
-      if (recetaResuelta.completa) {
-        let costoCompleto = true;
+      // AJUSTE 3 CASA SHAMY: RECETA PARCIAL
+      // Aunque la receta esté "En proceso", los ingredientes ya capturados
+      // sí salen físicamente del inventario y su costo conocido se reconoce.
+      if ((recetaResuelta.receta || []).length > 0) {
+        let todosLosCostosConocidos = true;
+
         for (const ingrediente of recetaResuelta.receta) {
           const requerido = numero(ingrediente.cantidad) * unidades;
           const plan = planificarFIFO(listaTrabajo, ingrediente.insumoId, requerido);
@@ -2177,14 +2236,14 @@ export function DatosNegocioProvider({ children }) {
           }
 
           costoPartidaConocido += numero(plan.costoConocido);
-          if (plan.costoPendiente) costoCompleto = false;
+          if (plan.costoPendiente) todosLosCostosConocidos = false;
           detallePartida.push(...plan.detalle);
           listaTrabajo = aplicarConsumoFIFOEnLista(listaTrabajo, plan.detalle);
         }
 
         inventarioConsumido = detallePartida.length > 0;
-        costoPendientePartida = !costoCompleto;
-        costoPartida = costoCompleto ? redondear(costoPartidaConocido) : null;
+        costoPendientePartida = !recetaResuelta.completa || !todosLosCostosConocidos;
+        costoPartida = costoPendientePartida ? null : redondear(costoPartidaConocido);
         detalleCosto.push(...detallePartida);
       }
 
@@ -2214,7 +2273,7 @@ export function DatosNegocioProvider({ children }) {
           ? partidaEntrada.quitarInsumoIds
           : [],
         nota: String(partidaEntrada.nota || '').trim(),
-        recetaVenta: recetaResuelta.completa ? recetaResuelta.receta : null,
+        recetaVenta: (recetaResuelta.receta || []).length ? recetaResuelta.receta : null,
         recetaCompletaAlVender: recetaResuelta.completa,
         estadoRecetaAlVender: recetaResuelta.estado,
         inventarioConsumido,
@@ -2512,89 +2571,96 @@ export function DatosNegocioProvider({ children }) {
         continue;
       }
 
-      // Si esta partida ya descontó físicamente inventario (por ejemplo,
-      // porque el lote tenía costo pendiente), solo resolvemos el costo.
-      // Nunca volvemos a consumir las mismas unidades.
-      if (partida.inventarioConsumido && Array.isArray(partida.detalleCostoPartida) && partida.detalleCostoPartida.length) {
-        let costoPartidaConocido = 0;
-        let todoConocido = true;
-        const detalleActualizado = partida.detalleCostoPartida.map((d) => {
-          const actual = costoActualDeDetalle(d);
-          if (!actual.conocido) todoConocido = false;
-          else costoPartidaConocido += actual.costo;
-          return { ...d, costoUnidad: actual.costoUnidad, costo: actual.costo };
-        });
+      const recetaInfo = resolverRecetaPartidaV2(producto, partida);
+      const recetaActual = Array.isArray(recetaInfo.receta) ? recetaInfo.receta : [];
+      const recetaYaConsumida = Array.isArray(partida.recetaVenta) ? partida.recetaVenta : [];
 
-        costoConocido += costoPartidaConocido;
-        if (!todoConocido) {
-          pendientes += 1;
-          nuevasPartidas.push({
-            ...partida,
-            detalleCostoPartida: detalleActualizado,
-            costoConocido: redondear(costoPartidaConocido),
-            costo: null,
-            costoPendiente: true,
-          });
-        } else {
-          costeadosAhora += 1;
-          nuevasPartidas.push({
-            ...partida,
-            detalleCostoPartida: detalleActualizado,
-            costoConocido: redondear(costoPartidaConocido),
-            costo: redondear(costoPartidaConocido),
-            costoPendiente: false,
-          });
-        }
-        continue;
+      // Recalcula el costo de todo lo que ya salió físicamente del inventario.
+      let costoPartidaConocido = 0;
+      let todosLosCostosConocidos = true;
+      let detalleActualizado = [];
+
+      if (Array.isArray(partida.detalleCostoPartida) && partida.detalleCostoPartida.length) {
+        detalleActualizado = partida.detalleCostoPartida.map((det) => {
+          const actual = costoActualDeDetalle(det);
+          if (!actual.conocido) todosLosCostosConocidos = false;
+          else costoPartidaConocido += numero(actual.costo);
+          return { ...det, costoUnidad: actual.costoUnidad, costo: actual.costo };
+        });
       }
 
-      const recetaInfo = resolverRecetaPartidaV2(producto, partida);
-      if (!recetaInfo.completa || !recetaInfo.receta.length) {
-        pendientes += 1;
-        nuevasPartidas.push({ ...partida, costo: null, costoPendiente: true });
-        continue;
+      // Si después de la venta completamos más ingredientes de la receta,
+      // consume únicamente la diferencia positiva; nunca vuelve a descontar
+      // lo que la venta ya consumió.
+      const cantidadesConsumidas = {};
+      for (const ing of recetaYaConsumida) {
+        cantidadesConsumidas[ing.insumoId] =
+          numero(cantidadesConsumidas[ing.insumoId]) + numero(ing.cantidad) * unidades;
+      }
+
+      const cantidadesActuales = {};
+      for (const ing of recetaActual) {
+        cantidadesActuales[ing.insumoId] =
+          numero(cantidadesActuales[ing.insumoId]) + numero(ing.cantidad) * unidades;
       }
 
       let trabajoProducto = listaTrabajo.map((i) => ({
         ...i,
         lotes: (i.lotes || []).map((l) => ({ ...l })),
       }));
-      let costoPartidaConocido = 0;
-      const detalleProducto = [];
+      const detalleNuevoPartida = [];
       let inventarioDisponible = true;
-      let costoCompleto = true;
 
-      for (const ingrediente of recetaInfo.receta) {
-        const requerido = numero(ingrediente.cantidad) * unidades;
-        const plan = planificarFIFO(trabajoProducto, ingrediente.insumoId, requerido);
+      for (const [insumoId, requeridoActual] of Object.entries(cantidadesActuales)) {
+        const yaConsumido = numero(cantidadesConsumidas[insumoId]);
+        const faltante = Math.max(0, numero(requeridoActual) - yaConsumido);
+        if (faltante <= 0.000001) continue;
+
+        const plan = planificarFIFO(trabajoProducto, insumoId, faltante);
         if (!plan.ok) {
           inventarioDisponible = false;
           break;
         }
+
         costoPartidaConocido += numero(plan.costoConocido);
-        if (plan.costoPendiente) costoCompleto = false;
-        detalleProducto.push(...plan.detalle);
+        if (plan.costoPendiente) todosLosCostosConocidos = false;
+        detalleNuevoPartida.push(...plan.detalle);
         trabajoProducto = aplicarConsumoFIFOEnLista(trabajoProducto, plan.detalle);
       }
 
       if (!inventarioDisponible) {
+        costoConocido += costoPartidaConocido;
         pendientes += 1;
-        nuevasPartidas.push({ ...partida, costo: null, costoPendiente: true });
+        nuevasPartidas.push({
+          ...partida,
+          detalleCostoPartida: detalleActualizado,
+          costoConocido: redondear(costoPartidaConocido),
+          costo: null,
+          costoPendiente: true,
+        });
         continue;
       }
 
       listaTrabajo = trabajoProducto;
-      costoConocido += costoPartidaConocido;
-      nuevoDetalle.push(...detalleProducto);
+      if (detalleNuevoPartida.length) {
+        detalleActualizado = [...detalleActualizado, ...detalleNuevoPartida];
+        nuevoDetalle.push(...detalleNuevoPartida);
+      }
 
-      if (!costoCompleto) {
+      costoConocido += costoPartidaConocido;
+
+      const recetaCompletaAhora = recetaInfo.completa === true;
+      const costoCompletoAhora = recetaCompletaAhora && todosLosCostosConocidos;
+
+      if (!costoCompletoAhora) {
         pendientes += 1;
         nuevasPartidas.push({
           ...partida,
-          recetaVenta: recetaInfo.receta,
-          recetaCompletaAlVender: true,
-          inventarioConsumido: detalleProducto.length > 0,
-          detalleCostoPartida: detalleProducto,
+          producto: producto.nombre,
+          recetaVenta: recetaActual.length ? recetaActual : recetaYaConsumida,
+          recetaCompletaAlVender: recetaCompletaAhora,
+          inventarioConsumido: detalleActualizado.length > 0,
+          detalleCostoPartida: detalleActualizado,
           costoConocido: redondear(costoPartidaConocido),
           costo: null,
           costoPendiente: true,
@@ -2604,16 +2670,16 @@ export function DatosNegocioProvider({ children }) {
         nuevasPartidas.push({
           ...partida,
           producto: producto.nombre,
-          recetaVenta: recetaInfo.receta,
-          inventarioConsumido: detalleProducto.length > 0,
-          detalleCostoPartida: detalleProducto,
+          recetaVenta: recetaActual,
+          recetaCompletaAlVender: true,
+          inventarioConsumido: detalleActualizado.length > 0,
+          detalleCostoPartida: detalleActualizado,
           costoConocido: redondear(costoPartidaConocido),
           costo: redondear(costoPartidaConocido),
           costoPendiente: false,
         });
       }
     }
-
     const detallePrevioResuelto = (venta.detalleCosto || []).map((d) => {
       const actual = costoActualDeDetalle(d);
       return actual.conocido ? { ...d, costoUnidad: actual.costoUnidad, costo: actual.costo } : d;
@@ -3373,6 +3439,7 @@ export function DatosNegocioProvider({ children }) {
     registrarVentaLibre,
     registrarVentaCarrito,
     resolverRecetaPartidaV2,
+    resolverValoresOpcionV2,
     precioPartidaV2,
     clasificarVentaLibre,
     costearVentaProductoPendiente,

@@ -1,2 +1,6 @@
 .expo/
 node_modules/
+*.antes-*.js
+*.backup.js
+fix-*.js
+fix_*.js
