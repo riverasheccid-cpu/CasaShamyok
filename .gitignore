@@ -7,3 +7,4 @@ fix_*.js
 .env
 instalar-*.js
 dist/
+agregar-*.js

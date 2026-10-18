@@ -107,6 +107,8 @@ export default function SupabaseSync({ session, children }) {
   const [errorTexto, setErrorTexto] = useState('');
   const [reintento, setReintento] = useState(0);
   const [branchId, setBranchId] = useState(null);
+  const [estadoSync, setEstadoSync] = useState('Sincronizado');
+  const [saliendo, setSaliendo] = useState(false);
 
   const ultimoSubidoRef = useRef('');
   const inicioLanzadoRef = useRef(false);
@@ -254,12 +256,17 @@ export default function SupabaseSync({ session, children }) {
   useEffect(() => {
     if (!listo || !branchId || !session?.user?.id) return;
 
+    setEstadoSync('Guardando…');
+
     const temporizador = setTimeout(async () => {
       try {
         const estado = estadoDesdeRespaldo(crearRespaldoDatos);
         const serial = JSON.stringify(estado);
 
-        if (serial === ultimoSubidoRef.current) return;
+        if (serial === ultimoSubidoRef.current) {
+          setEstadoSync('Sincronizado');
+          return;
+        }
 
         const { error } = await supabase
           .from('branch_state')
@@ -274,8 +281,10 @@ export default function SupabaseSync({ session, children }) {
 
         if (error) throw error;
         ultimoSubidoRef.current = serial;
+        setEstadoSync('Sincronizado');
       } catch (error) {
         console.log('Error sincronizando Casa Shamy:', error);
+        setEstadoSync('Sin sincronizar');
       }
     }, 900);
 
@@ -297,6 +306,11 @@ export default function SupabaseSync({ session, children }) {
     creditosProveedores,
     pagosCreditos,
   ]);
+
+  const cerrarSesion = () => {
+    if (estadoSync === 'Guardando…' || saliendo) return;
+    Alert.alert('Cerrar sesión','¿Quieres cerrar tu sesión de Casa Shamy?',[{ text:'Cancelar',style:'cancel' },{ text:'Cerrar sesión',style:'destructive',onPress:async()=>{try{setSaliendo(true);const {error}=await supabase.auth.signOut();if(error)throw error;}catch(error){setSaliendo(false);Alert.alert('No se pudo cerrar sesión',error?.message||'Inténtalo nuevamente.');}}}]);
+  };
 
   if (errorTexto) {
     return (
@@ -331,10 +345,36 @@ export default function SupabaseSync({ session, children }) {
     );
   }
 
-  return children;
+  return (
+    <View style={styles.app}>
+      <View style={styles.barraSync}>
+        <View style={styles.estadoGrupo}>
+          <View style={[styles.puntoEstado,estadoSync === 'Sin sincronizar' ? styles.puntoError : estadoSync === 'Guardando…' ? styles.puntoGuardando : styles.puntoOk]} />
+          <Text style={styles.estadoTexto}>{estadoSync}</Text>
+        </View>
+        <Pressable onPress={cerrarSesion} disabled={estadoSync === 'Guardando…' || saliendo} style={({pressed})=>[styles.botonSalir,(estadoSync === 'Guardando…' || saliendo)&&styles.botonSalirDeshabilitado,pressed&&styles.presionado]}>
+          <Text style={styles.botonSalirTexto}>{saliendo ? 'Saliendo…' : 'Cerrar sesión'}</Text>
+        </Pressable>
+      </View>
+      <View style={styles.contenidoApp}>{children}</View>
+    </View>
+  );
 }
 
 const styles = StyleSheet.create({
+  app:{flex:1,backgroundColor:'#F6F7F6'},
+  contenidoApp:{flex:1},
+  barraSync:{minHeight:40,paddingHorizontal:12,paddingVertical:6,backgroundColor:'#FFFFFF',borderBottomWidth:1,borderBottomColor:'#E3E7E5',flexDirection:'row',alignItems:'center',justifyContent:'space-between'},
+  estadoGrupo:{flexDirection:'row',alignItems:'center',gap:7},
+  puntoEstado:{width:8,height:8,borderRadius:4},
+  puntoOk:{backgroundColor:'#2E8B57'},
+  puntoGuardando:{backgroundColor:'#C58A22'},
+  puntoError:{backgroundColor:'#C14B3C'},
+  estadoTexto:{color:'#52605B',fontSize:12,fontWeight:'800'},
+  botonSalir:{minHeight:28,paddingHorizontal:10,borderRadius:8,borderWidth:1,borderColor:'#D7DDDA',backgroundColor:'#F7F8F7',alignItems:'center',justifyContent:'center'},
+  botonSalirDeshabilitado:{opacity:.45},
+  botonSalirTexto:{color:'#4E5B56',fontSize:11,fontWeight:'800'},
+  presionado:{opacity:.65},
   pantalla: { flex: 1, backgroundColor: '#F6F7F6' },
   centro: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 28 },
   titulo: {
